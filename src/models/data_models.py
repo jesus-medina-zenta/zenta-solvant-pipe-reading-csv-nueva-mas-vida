@@ -295,15 +295,17 @@ class ProcessingStats(BaseModel):
     
     @property
     def success_rate(self) -> float:
-        """Calculates the processing success rate."""
+        """Calculate success rate."""
         if self.total_records == 0:
             return 0.0
         return (self.successful_records / self.total_records) * 100
     
     @property
     def failure_rate(self) -> float:
-        """Calculates the processing failure rate."""
-        return 100.0 - self.success_rate
+        """Calculate failure rate."""
+        if self.total_records == 0:
+            return 0.0
+        return (self.failed_records / self.total_records) * 100
     
     def add_success(self) -> None:
         """Increments the successful records counter."""
@@ -319,7 +321,8 @@ class ProcessingStats(BaseModel):
         """Marks processing as finished."""
         self.end_time = datetime.now(timezone.utc)
         if self.start_time:
-            self.processing_time_seconds = (self.end_time - self.start_time).total_seconds()
+            delta = self.end_time - self.start_time
+            self.processing_time_seconds = delta.total_seconds()
 
 
 class ErrorRecord(BaseModel):
