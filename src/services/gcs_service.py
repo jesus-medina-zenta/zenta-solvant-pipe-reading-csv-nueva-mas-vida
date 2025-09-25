@@ -30,7 +30,7 @@ class CloudStorageService:
         self.client: Optional[storage.Client] = None
         self.project_id = project_id or os.getenv('FIRESTORE_PROJECT_ID', 'znt-solvant-dev')
         self.bucket_name = bucket_name or os.getenv('GCS_BUCKET_NAME', f'{self.project_id}-csv-files')
-        # self.bucket: Optional[Bucket] = None
+        self.bucket = None
         
     async def connect(self) -> bool:
         """
@@ -39,7 +39,7 @@ class CloudStorageService:
         Returns:
             bool: True si la conexión fue exitosa
         """
-        if self.is_connected and self.client and self.bucket:
+        if self.is_connected and self.client:
             return True
             
         try:
@@ -62,29 +62,6 @@ class CloudStorageService:
             # Configurar bucket de forma segura
             if self.bucket_name:
                 self.bucket = self.client.bucket(self.bucket_name)
-                
-                #  Verificar/crear bucket de forma segura
-                try:
-                    # Intentar una operación simple para verificar permisos
-                    self.bucket.exists()  
-                    logger.info(f"📂 Bucket verificado: {self.bucket_name}")
-                    
-                except NotFound:
-                    logger.info(f"Bucket '{self.bucket_name}' no existe, creándolo...")
-                    try:
-                        self.bucket = self._create_bucket()
-                    except Exception as create_error:
-                        logger.error(f"❌ No se pudo crear bucket: {create_error}")
-                        
-                        logger.warning("⚠️ Continuando sin verificar bucket...")
-                        
-                except Forbidden as e:
-                    logger.warning(f"⚠️ Sin permisos para verificar bucket: {e}")
-                    logger.warning("⚠️ Continuando asumiendo que el bucket existe...")
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Error verificando bucket: {e}")
-                    logger.warning("⚠️ Continuando sin verificación...")
             
             self.is_connected = True
             logger.info("✅ Conexión a Cloud Storage establecida exitosamente")

@@ -2,7 +2,7 @@
 Lógica principal del pipeline ETL.
 """
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
 from src.config import init_config
@@ -214,8 +214,8 @@ class Pipeline:
             except Exception as e:
                 logger.error(f"❌ Error extrayendo datos de GCS: {e}")
                 return []
-        
-    async def transform_data(self, raw_data: List[Dict[str, Any]]) -> List[DataRecord]:
+
+    async def transform_data(self, raw_data: List[Dict[str, Any]]) -> Tuple[List[DataRecord], List[str]]:
         """
         Transforma los datos extraídos del CSV.
         
@@ -231,7 +231,7 @@ class Pipeline:
             
             if not raw_data:
                 logger.warning("⚠️ No hay datos para transformar")
-                return []
+                return [], ["No hay datos para transformar"]
             
             # Generar fecha actual en UTC
             fecha_utc = datetime.now(timezone.utc)
@@ -301,7 +301,7 @@ class Pipeline:
             
         except Exception as e:
             logger.error(f"❌ Error crítico en transformación: {e}")
-            return []
+            return [], [f"❌ Error crítico en transformación: {e}"]
     async def mark_as_error(self, log_record: LogRecord, error_messages) -> None:
         """
         Marca un registro como error.
