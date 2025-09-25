@@ -5,11 +5,13 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-from .config import init_config, get_database_config, get_bigquery_config
-from .services.postgres_service import PostgresService
-from .services.bigquery_service import BigQueryService
-from .models.data_models import DataRecord
-from .utils.logger import get_logger
+from src.config import init_config
+from src.enums.status import PipelineType, StatusType
+from src.models.data_models import DataRecord
+from src.models.log_record import LogRecord
+from src.services.firestore_service import FirestoreService
+from src.services.gcs_service import CloudStorageService
+from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -21,168 +23,335 @@ class Pipeline:
     
     def __init__(self):
         """Inicializa el pipeline con los servicios necesarios."""
-        self.postgres_service = PostgresService()
-        self.bigquery_service = BigQueryService()
+        self.firestore_service = FirestoreService()
+        self.gcs_service = CloudStorageService()
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
-        
-    async def run(self) -> bool:
+    
+    async def initialize_services(self) -> bool:
         """
-        Ejecuta el pipeline completo.
+        Inicializa y conecta todos los servicios necesarios.
         
         Returns:
-            bool: True si el pipeline fue exitoso, False en caso contrario
+            bool: True si todos los servicios se conectaron exitosamente
         """
-        self.start_time = datetime.now(timezone.utc)
-        logger.info("Iniciando ejecución del pipeline")
-        
         try:
-            # Paso 1: Extract
-            logger.info("Iniciando extracción de datos")
-            raw_data = await self.extract()
-            logger.info(f"Extraídos {len(raw_data)} registros")
+            logger.info("🚀 Inicializando servicios...")
             
-            if not raw_data:
-                logger.warning("No se encontraron datos para procesar")
-                return True
-            
-            # Paso 2: Transform
-            logger.info("Iniciando transformación de datos")
-            transformed_data = await self.transform(raw_data)
-            
-            logger.info(f"Transformados {len(transformed_data)} registros")
-            
-            # Paso 3: Load
-            logger.info("Iniciando carga de datos")
-            success = await self.load(transformed_data)
-            
-            if success:
-                logger.info("Pipeline completado exitosamente")
-                return True
-            else:
-                logger.error("Error en la carga de datos")
+            # Conectar Firestore
+            if not self.firestore_service.connect():
+                logger.error("❌ Error conectando a Firestore")
                 return False
-                
+            
+            # Conectar GCS
+            if not await self.gcs_service.connect():
+                logger.error("❌ Error conectando a GCS")
+                return False
+            
+            logger.info("✅ Todos los servicios inicializados correctamente")
+            return True
+            
         except Exception as e:
-            logger.exception(f"Error en el pipeline: {e}")
+            logger.error(f"❌ Error inicializando servicios: {e}")
             return False
-        finally:
-            self.end_time = datetime.now(timezone.utc)
-            duration = (self.end_time - self.start_time).total_seconds()
-            logger.info(f"Pipeline finalizado. Duración: {duration:.2f} segundos")
-    
-    async def extract(self) -> List[Dict[str, Any]]:
-        """
-        Extrae datos de la fuente.
-        
-        Returns:
-            List[Dict[str, Any]]: Datos extraídos
-        """
-        try:
-            # Aquí puedes personalizar la consulta según tus necesidades
-            query = """
-            SELECT *
-            FROM registro
+    async def run(self) -> bool:
             """
+            Ejecuta el pipeline completo.
             
-            data = await self.postgres_service.extract(query)
-            return data
+            Returns:
+                bool: True si el pipeline fue exitoso, False en caso contrario
+            """
+            self.start_time = datetime.now(timezone.utc)
+            logger.info("🔄 Iniciando pipeline integrado de procesamiento CSV")
             
-        except Exception as e:
-            logger.error(f"Error en la extracción: {e}")
-            return []
-    
-    async def transform(self, raw_data: List[Dict[str, Any]]) -> List[DataRecord]:
+            try:
+                # Inicializar servicios
+                if not await self.initialize_services():
+                    return False
+                
+                # Obtener registros pendientes de Firestore
+                pending_logs = self.firestore_service.get_pending_logs()
+                
+                if not pending_logs:
+                    logger.info("📭 No hay archivos pendientes para procesar")
+                    return True
+                
+                logger.info(f"📋 Procesando {len(pending_logs)} archivos pendientes")
+                
+                # Procesar cada archivo pendiente
+                processed_count = 0
+                error_count = 0
+                
+                for log_record in pending_logs:
+                    try:
+                        success = await self.process_single_file(log_record)
+                        if success:
+                            processed_count += 1
+                        else:
+                            error_count += 1
+                            
+                    except Exception as e:
+                        logger.error(f"❌ Error procesando archivo {log_record.id}: {e}")
+                        error_count += 1
+                
+                # Resumen final
+                logger.info(f"✅ Pipeline completado: {processed_count} exitosos, {error_count} errores")
+                return error_count == 0
+                
+            except Exception as e:
+                logger.exception(f"❌ Error crítico en el pipeline: {e}")
+                return False
+            finally:
+                await self.cleanup()
+        
+    async def process_single_file(self, log_record: LogRecord) -> bool:
         """
-        Transforma los datos extraídos.
+        Procesa un solo archivo CSV.
         
         Args:
-            raw_data: Datos en bruto extraídos
+            log_record: Registro de log del archivo a procesar
+            
+        Returns:
+            bool: True si el procesamiento fue exitoso
+        """
+        start_time = datetime.now(timezone.utc)
+        logger.info(f"📁 Procesando archivo: {log_record.id}")
+        
+        try:
+            # Actualizar estado a PROCESANDO y cambiar pipeline_type 
+            self.firestore_service.update_log_status(
+                log_record.id, 
+                StatusType.PROCESANDO,
+                fecha_inicio=start_time.isoformat(),
+                pipeline_type=PipelineType.TRANSFORMATION.value
+            )
+            
+            # 1. Extraer datos del CSV en GCS
+            raw_data = await self.extract_from_gcs(log_record.csv_generado)
+            if not raw_data:
+                error_msg = "No se pudieron extraer datos del CSV"
+                await self.mark_as_error(log_record, error_msg)
+                return False
+            
+            logger.info(f"📖 Extraídos {len(raw_data)} registros del CSV")
+            
+            # 2. Transformar datos (ahora retorna tupla con errores)
+            transformed_data, transformation_errors = await self.transform_data(raw_data)
+            
+            if not transformed_data:
+                error_msg = "Error en la transformación de datos - no se pudieron procesar registros"
+                # Agregar errores específicos de transformación
+                all_errors = [error_msg] + transformation_errors
+                await self.mark_as_error(log_record, all_errors)
+                return False
+            
+            logger.info(f"🔄 Transformados {len(transformed_data)} registros")
+            
+            # 3. Cargar datos transformados en Firestore
+            save_success = self.firestore_service.save_transformed_records(transformed_data, log_record.id)
+            if not save_success:
+                error_msg = "Error guardando datos transformados en Firestore"
+                all_errors = [error_msg] + transformation_errors if transformation_errors else [error_msg]
+                await self.mark_as_error(log_record, all_errors)
+                return False
+            
+            # 4. Actualizar estado a COMPLETADO con información completa
+            end_time = datetime.now(timezone.utc)
+            duration = (end_time - start_time).total_seconds()
+            
+            # Preparar datos de actualización
+            update_data = {
+                "fecha_fin": end_time.isoformat(),
+                "duracion_segundos": duration,
+                "registros_transformados": len(transformed_data),
+                "registros_cargados": len(transformed_data),
+                "pipeline_type": PipelineType.TRANSFORMATION.value
+            }
+            
+            # ✅ Agregar errores si los hay (incluso en caso de éxito parcial)
+            if transformation_errors:
+                update_data["errores"] = transformation_errors
+                logger.warning(f"⚠️ Procesamiento completado con {len(transformation_errors)} errores de transformación")
+            
+            # Actualizar estado
+            self.firestore_service.update_log_status(
+                log_record.id,
+                StatusType.PARSEADO,
+                **update_data
+            )
+            
+            logger.info(f"✅ Archivo {log_record.id} procesado exitosamente en {duration:.2f}s")
+            logger.info(f"📊 Estadísticas: {len(raw_data)} extraídos, {len(transformed_data)} transformados, {len(transformed_data)} cargados")
+            
+            if transformation_errors:
+                logger.info(f"⚠️ {len(transformation_errors)} registros fallaron en la transformación")
+            
+            return True
+            
+        except Exception as e:
+            logger.exception(f"❌ Error procesando archivo {log_record.id}: {e}")
+            await self.mark_as_error(log_record, [f"Error crítico en procesamiento: {str(e)}"])
+            return False
+        
+    async def extract_from_gcs(self, gcs_url: str) -> List[Dict[str, Any]]:
+            """
+            Extrae datos de un archivo CSV en GCS.
+            
+            Args:
+                gcs_url: URL del archivo CSV en GCS
+                
+            Returns:
+                List[Dict[str, Any]]: Datos extraídos del CSV
+            """
+            try:
+                if not gcs_url:
+                    logger.error("❌ URL de GCS vacía")
+                    return []
+                
+                data = await self.gcs_service.read_csv_from_gcs_url(gcs_url)
+                return data
+                
+            except Exception as e:
+                logger.error(f"❌ Error extrayendo datos de GCS: {e}")
+                return []
+        
+    async def transform_data(self, raw_data: List[Dict[str, Any]]) -> List[DataRecord]:
+        """
+        Transforma los datos extraídos del CSV.
+        
+        Args:
+            raw_data: Datos en bruto del CSV
             
         Returns:
             List[DataRecord]: Datos transformados y validados
         """
-        transformed_data = []
-        errors = 0
-        
-        for row in raw_data:
-            try:
-                # Validar y transformar usando Pydantic
-                record = DataRecord(**row)
-                transformed_data.append(record)
-                
-            except Exception as e:
-                errors += 1
-                logger.warning(f"Error transformando registro: {e}")
-                
-                # Si TODOS los registros son inválidos, no continuar
-                if errors == len(raw_data) and len(raw_data) > 0:
-                    logger.error(f"Todos los registros son inválidos ({errors} errores)")
-                    return []
-        
-        if errors > 0:
-            logger.warning(f"Se encontraron {errors} errores en la transformación")
-        
-        return transformed_data
-    
-    async def load(self, data: List[DataRecord]) -> bool:
-        """
-        Carga los datos transformados al destino.
-        
-        Args:
-            data: Datos transformados para cargar
-            
-        Returns:
-            bool: True si la carga fue exitosa
-        """
         try:
-            # Procesar en lotes para mejorar rendimiento
-            app_config = init_config()
-            batch_size = app_config.batch_size
-            total_batches = (len(data) + batch_size - 1) // batch_size
+            transformed_data = []
+            transformation_errors = []
             
-            for i in range(0, len(data), batch_size):
-                batch = data[i:i + batch_size]
-                batch_num = (i // batch_size) + 1
-                
-                logger.info(f"Procesando lote {batch_num}/{total_batches} ({len(batch)} registros)")
-                
-                # Convertir a diccionarios para BigQuery (serializando fechas como ISO strings)
-                batch_dicts = [record.model_dump(mode='json') for record in batch]
-                
-                success = await self.bigquery_service.load(batch_dicts)
-                if not success:
-                    logger.error(f"Error cargando lote {batch_num}")
-                    return False
+            if not raw_data:
+                logger.warning("⚠️ No hay datos para transformar")
+                return []
             
-            logger.info("Todos los lotes cargados exitosamente")
-            return True
+            # Generar fecha actual en UTC
+            fecha_utc = datetime.now(timezone.utc)
+            
+            logger.info(f"🔄 Iniciando transformación de {len(raw_data)} registros")
+            
+            for idx, row in enumerate(raw_data):
+                try:
+                    # Extraer extraction_id del registro actual
+                    extraction_id = row.get('extraction_id', '')
+                    if not extraction_id:
+                        error_msg = f"Fila {idx + 1}: extraction_id faltante"
+                        transformation_errors.append(error_msg)
+                        continue
+                    
+                    # Crear el registro usando el método from_dict
+                    record = DataRecord.from_dict(
+                        data=row,
+                        carga_id=extraction_id,
+                        fecha_utc=fecha_utc
+                    )
+                    
+                    # Validar que el registro sea válido
+                    if record.is_valid():
+                        transformed_data.append(record)
+                        logger.debug(f"✅ Registro {idx + 1} transformado exitosamente")
+                    else:
+                        error_msg = f"Fila {idx + 1}: Registro inválido después de transformación"
+                        transformation_errors.append(error_msg)
+                    
+                except ValueError as ve:
+                    error_msg = f"Error de validación en fila {idx + 1}: {str(ve)}"
+                    transformation_errors.append(error_msg)
+                    logger.debug(error_msg)
+                    
+                except Exception as e:
+                    error_msg = f"Error inesperado en fila {idx + 1}: {str(e)}"
+                    transformation_errors.append(error_msg)
+                    logger.debug(error_msg)
+            
+            # Evaluación de resultados
+            total_records = len(raw_data)
+            success_count = len(transformed_data)
+            error_count = len(transformation_errors)
+            success_rate = (success_count / total_records * 100) if total_records > 0 else 0
+            
+            logger.info(f"📊 Resultados transformación: {success_count}/{total_records} exitosos ({success_rate:.1f}%)")
+            
+            if transformation_errors:
+                logger.warning(f"⚠️ {error_count} errores en transformación:")
+                # Mostrar primeros 10 errores para debugging
+                sample_errors = transformation_errors[:10]
+                for error in sample_errors:
+                    logger.warning(f"   - {error}")
+                
+                if len(transformation_errors) > 10:
+                    logger.warning(f"   ... y {len(transformation_errors) - 10} errores más")
+            
+            # Solo fallar si hay menos del 20% de éxito
+            if success_rate < 20:
+                error_summary = f"Tasa de éxito muy baja: {success_rate:.1f}% ({success_count}/{total_records})"
+                logger.error(f"❌ {error_summary}")
+                transformation_errors.insert(0, error_summary)
+                return [], transformation_errors
+            
+            return transformed_data, transformation_errors
             
         except Exception as e:
-            logger.exception(f"Error en la carga: {e}")
-            return False
-    
-    async def validate_data_quality(self, data: List[DataRecord]) -> bool:
+            logger.error(f"❌ Error crítico en transformación: {e}")
+            return []
+    async def mark_as_error(self, log_record: LogRecord, error_messages) -> None:
         """
-        Valida la calidad de los datos transformados.
+        Marca un registro como error.
         
         Args:
-            data: Datos a validar
-            
-        Returns:
-            bool: True si los datos pasan las validaciones
+            log_record: Registro de log
+            error_messages: Mensaje de error (str) o lista de mensajes (List[str])
         """
-        if not data:
-            logger.warning("No hay datos para validar")
-            return False
+        end_time = datetime.now(timezone.utc)
         
-        # Validaciones básicas
-        null_count = sum(1 for record in data if not record.is_valid())
-        null_percentage = (null_count / len(data)) * 100
+        # Normalizar errores a lista
+        if isinstance(error_messages, str):
+            errors_list = [error_messages]
+        elif isinstance(error_messages, list):
+            errors_list = error_messages
+        else:
+            errors_list = [str(error_messages)]
         
-        if null_percentage > 5:  # Más del 5% de registros inválidos
-            logger.error(f"Demasiados registros inválidos: {null_percentage:.2f}%")
-            return False
+        # Limitar número de errores para evitar documentos muy grandes
+        max_errors = 100
+        if len(errors_list) > max_errors:
+            truncated_errors = errors_list[:max_errors]
+            truncated_errors.append(f"... y {len(errors_list) - max_errors} errores más (truncado)")
+            errors_list = truncated_errors
         
-        logger.info(f"Validación de calidad pasada. Registros inválidos: {null_percentage:.2f}%")
-        return True
+        self.firestore_service.update_log_status(
+            log_record.id,
+            StatusType.ERROR,
+            fecha_fin=end_time.isoformat(),
+            errores=errors_list,
+            pipeline_type=PipelineType.TRANSFORMATION.value 
+        )
+        
+        logger.error(f"❌ Archivo {log_record.id} marcado como ERROR con {len(errors_list)} mensajes")
+        
+    async def cleanup(self):
+            """Limpia recursos y cierra conexiones."""
+            try:
+                if self.firestore_service:
+                    self.firestore_service.disconnect()
+                
+                if self.gcs_service:
+                    await self.gcs_service.disconnect()
+                
+                if self.end_time is None:
+                    self.end_time = datetime.now(timezone.utc)
+                
+                if self.start_time:
+                    duration = (self.end_time - self.start_time).total_seconds()
+                    logger.info(f"🏁 Pipeline finalizado. Duración total: {duration:.2f} segundos")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error en cleanup: {e}")
