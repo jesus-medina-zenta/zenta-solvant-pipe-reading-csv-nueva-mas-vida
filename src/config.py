@@ -6,44 +6,6 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 
 
-class DatabaseConfig(BaseSettings):
-    """Configuración para bases de datos PostgreSQL."""
-
-    host: str = Field(default="localhost", description="Host de PostgreSQL")
-    port: int = Field(default=5432, description="Puerto de PostgreSQL")
-    database: str = Field(default="postgres", description="Nombre de la base de datos")
-    user: str = Field(default="postgres", description="Usuario de PostgreSQL")
-    password: str = Field(default="", description="Contraseña de PostgreSQL")
-
-    model_config = {
-        "env_prefix": "POSTGRES_",
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "extra": "ignore"
-    }
-
-    @property
-    def connection_string(self) -> str:
-        """Retorna la cadena de conexión para PostgreSQL."""
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
-
-
-class BigQueryConfig(BaseSettings):
-    """Configuración para Google BigQuery."""
-
-    project_id: str = Field(default="", description="ID del proyecto de Google Cloud")
-    dataset: str = Field(default="", description="Dataset de BigQuery")
-    table: str = Field(default="", description="Tabla de BigQuery")
-    location: str = Field(default="US", description="Ubicación de BigQuery")
-
-    model_config = {
-        "env_prefix": "BIGQUERY_",
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "extra": "ignore"
-    }
-
-
 class AppConfig(BaseSettings):
     """Configuración principal de la aplicación."""
 
@@ -64,6 +26,32 @@ class AppConfig(BaseSettings):
     }
 
 
+class CloudStorageConfig(BaseSettings):
+    """Configuración para Google Cloud Storage."""
+    
+    project_id: str = Field(default="", description="ID del proyecto de Google Cloud")
+    bucket_name: str = Field(default="", description="Nombre del bucket")
+    
+    model_config = {
+        "env_prefix": "GCS_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
+
+class FirestoreConfig(BaseSettings):
+    project_id: str
+    collection: str
+    database: str
+    logs_collection: str
+
+    model_config = {
+        "env_prefix": "FIRESTORE_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
+
 def get_config() -> AppConfig:
     """
     Obtiene la configuración de la aplicación.
@@ -72,20 +60,14 @@ def get_config() -> AppConfig:
     return AppConfig()
 
 
-def get_database_config() -> DatabaseConfig:
+def get_cloud_storage_config() -> CloudStorageConfig:
     """
-    Obtiene la configuración de la base de datos.
+    Obtiene la configuración de Google Cloud Storage.
     """
-    return DatabaseConfig()
+    return CloudStorageConfig()
 
-
-def get_bigquery_config() -> BigQueryConfig:
-    """
-    Obtiene la configuración de BigQuery.
-    """
-    return BigQueryConfig()
-
-
+def get_firestore_config() -> FirestoreConfig:
+    return FirestoreConfig()
 # Instancia global de configuración (solo se crea cuando se necesita)
 config: Optional[AppConfig] = None
 

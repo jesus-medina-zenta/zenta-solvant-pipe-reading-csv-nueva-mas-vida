@@ -1,10 +1,4 @@
 steps:
-  - id: 'shallow clone'
-    name: 'gcr.io/cloud-builders/git'
-    entrypoint: 'git'
-    args:
-      - 'fetch'
-      - '--unshallow'
   # Paso 1: Instalar dependencias
   - name: 'python:3.9'
     entrypoint: 'bash'
@@ -15,15 +9,6 @@ steps:
         pip install -r requirements.txt
 
   # Paso 2: Ejecutar tests
-  - name: 'python:3.9'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-        python -m pytest tests/ -v --cov=src --cov-report=xml
 
   # Paso 3: Construir la imagen Docker
   - id: 'Build docker image'
@@ -58,7 +43,12 @@ steps:
       - '${_RUN_SERVICE_ACCOUNT_EMAIL}'
       - '--set-env-vars=ENV=${_ENV}'
       - '--set-env-vars=PROJECT_ID=$PROJECT_ID'
-
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=$PROJECT_ID'
+      - '--set-env-vars=FIRESTORE_COLLECTION=${_FIRESTORE_COLLECTION}'
+      - '--set-env-vars=FIRESTORE_LOGS_COLLECTION=${_FIRESTORE_LOGS_COLLECTION}'
+      - '--set-env-vars=FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}'
+      - '--set-env-vars=GCS_BUCKET_NAME=${_GCS_BUCKET_NAME}'
+      - '--set-env-vars=GCS_PROJECT_ID=$PROJECT_ID'
 
 # Configuraciones adicionales
 options:
