@@ -168,7 +168,6 @@ class Pipeline:
                 "pipeline_type": PipelineType.TRANSFORMATION.value
             }
             
-            # ✅ Agregar errores si los hay (incluso en caso de éxito parcial)
             if transformation_errors:
                 update_data["errores"] = transformation_errors
                 logger.warning(f"⚠️ Procesamiento completado con {len(transformation_errors)} errores de transformación")

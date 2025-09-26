@@ -106,7 +106,6 @@ class DataRecord(BaseModel):
             )
             
         except ValueError:
-            # Re-lanzar ValueError con contexto adicional
             raise
         except Exception as e:
             error_msg = f"Error inesperado procesando línea (longitud={len(line)}): {str(e)}"
@@ -126,7 +125,7 @@ class DataRecord(BaseModel):
     def validate_phone_number_2(cls, v):
         """Valida el teléfono secundario (opcional)"""
         if v is not None and (v.strip() == "" or v.strip() == "+56"):
-            return None  # Convertir string vacío a None
+            return None  
         return v.strip() if v else None
 
     @model_validator(mode='after')

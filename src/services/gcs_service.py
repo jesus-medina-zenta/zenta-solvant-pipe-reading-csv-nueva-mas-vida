@@ -125,7 +125,7 @@ class CloudStorageService:
             logger.error(f"URL problemática: {gcs_url}")
             return []
 
-    async def disconnect(self) -> None:  # ✅ Hacer async
+    async def disconnect(self) -> None:  
         """Cierra conexión con GCS."""
         if self.client:
             # ✅ Google Cloud Storage client no necesita close() explícito
