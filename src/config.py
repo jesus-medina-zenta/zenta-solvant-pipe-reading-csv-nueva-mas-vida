@@ -44,6 +44,7 @@ class FirestoreConfig(BaseSettings):
     collection: str
     database: str
     logs_collection: str
+    batch_collection: str
 
     model_config = {
         "env_prefix": "FIRESTORE_",

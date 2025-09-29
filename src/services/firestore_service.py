@@ -1,6 +1,7 @@
 from typing import Optional, List
 from google.cloud import firestore
 from src.enums.status import StatusType
+from src.models.batch_record import BatchRecord
 from src.models.log_record import LogRecord
 from src.models.data_models import DataRecord
 from src.utils.logger import get_logger
@@ -19,6 +20,7 @@ class FirestoreService:
         self.collection = self.firestore_config.collection
         self.logs_collection = self.firestore_config.logs_collection
         self.database = self.firestore_config.database
+        self.batch_collection = self.firestore_config.batch_collection
         self.is_connected = False
 
     def connect(self) -> bool:
@@ -85,28 +87,86 @@ class FirestoreService:
             logger.error(f"❌ Error obteniendo registros pendientes: {e}")
             return []
 
-    def update_log_status(self, log_id: str, status: StatusType, **kwargs) -> bool:
+    def get_batch_record_by_id(self, batch_id: str) -> Optional[BatchRecord]:
+        """
+        Obtiene un registro de batch por su ID.
+        
+        Args:
+            batch_id: ID del batch a buscar
+            
+        Returns:
+            List[BatchRecord]: Lista de registros pendientes
+        """
+        try:
+            logger.info(f"🔍 Buscando archivo: {batch_id} en Firestore: {self.batch_collection}")
+            doc_ref = self.client.collection(self.batch_collection).document(batch_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                data = doc.to_dict()
+                batch_record = BatchRecord.from_firestore_dict(data)
+                logger.info(f"✅ Archivo encontrado: {batch_id}")
+                return batch_record
+            else:
+                logger.warning(f"⚠️ No se encontró el archivo con ID: {batch_id}")
+                return None
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo archivo {batch_id}: {e}")
+            return None
+
+        
+    def update_log_status(self, log_id: str, status: StatusType, is_backend: bool = False, **kwargs) -> bool:
         """
         Actualiza el estado de un registro de log.
         
         Args:
             log_id: ID del log a actualizar
             status: Nuevo estado
+            is_backend: Si True, actualiza en la colección batch, si False en logs_collection
             **kwargs: Campos adicionales a actualizar
             
         Returns:
             bool: True si la actualización fue exitosa
         """
         try:
-            doc_ref = self.client.collection(self.logs_collection).document(log_id)
+            # Determinar qué colección usar según el parámetro is_backend
+            collection_name = self.batch_collection if is_backend else self.logs_collection
+            
+            logger.info(f"📝 Actualizando log {log_id} en colección: {collection_name}")
+            logger.info(f"📝 Nuevo estado: {status}")
+            
+            doc_ref = self.client.collection(collection_name).document(log_id)
+            
+            # Adaptar el formato del status según la colección
+            if is_backend:
+                # Para batch, usar strings en minúsculas y mapear estados
+                status_value = status.value.lower() if hasattr(status, 'value') else str(status).lower()
+                
+                # Mapear algunos estados específicos para batch
+                status_mapping = {
+                    "pendiente": "pendiente",
+                    "procesando": "procesando", 
+                    "parseado": "completado",  # PARSEADO se convierte en COMPLETADO para batch
+                    "error": "error"
+                }
+                status_value = status_mapping.get(status_value, status_value)
+                
+            else:
+                # Para logs SFTP, usar el valor original del enum
+                status_value = status.value if hasattr(status, 'value') else str(status)
             
             update_data = {
-                "status": status.value,
+                "status": status_value,
+                "updated_at": firestore.SERVER_TIMESTAMP,
                 **kwargs
             }
             
+            logger.info(f"📝 Datos a actualizar: {list(update_data.keys())}")
+            
             doc_ref.update(update_data)
-            logger.info(f"✅ Log {log_id} actualizado a estado {status.value}")
+            
+            collection_type = "batch" if is_backend else "logs"
+            logger.info(f"✅ Log {log_id} actualizado a estado '{status_value}' en colección {collection_type}")
             
             # Log adicional si hay errores
             if "errores" in kwargs and kwargs["errores"]:
@@ -117,34 +177,96 @@ class FirestoreService:
             
         except Exception as e:
             logger.error(f"❌ Error actualizando log {log_id}: {e}")
+            logger.exception("Detalles del error:")
             return False
 
-    def save_transformed_records(self, records: list, log_id: str):
-        """Guarda registros transformados en Firestore."""
+    def save_transformed_records(self, records: list, log_id: str, is_batch_calling: bool = False):
+        """
+        Guarda registros transformados en Firestore.
+        
+        Args:
+            records: Lista de registros DataRecord transformados
+            log_id: ID del log original (UUID del batch)
+            is_batch_calling: True si son registros de batch calling
+        """
         try:
+            logger.info(f"💾 Guardando {len(records)} registros en colección '{self.collection}'")
+            logger.info(f"📋 Tipo: {'Batch Calling' if is_batch_calling else 'SFTP'}, Batch UUID: {log_id}")
+            
             collection_ref = self.client.collection(self.collection)
-            batch = self.client.batch()
             
-            for idx, record in enumerate(records):
-                if isinstance(record, DataRecord):
-                    record_dict = record.model_dump(mode="json")
-                else:
-                    record_dict = record
-                
-                # Agregar referencia al log original
-                record_dict["log_id"] = log_id
-                record_dict["processed_at"] = firestore.SERVER_TIMESTAMP
-                
-                doc_id = f"{log_id}_{idx+1}"
-                doc_ref = collection_ref.document(doc_id)
-                batch.set(doc_ref, record_dict)
+            BATCH_SIZE = 500  # Límite de Firestore
+            total_saved = 0
             
-            batch.commit()
-            logger.info(f"✅ {len(records)} registros guardados en la colección '{self.collection}'")
+            # Procesar en chunks
+            for chunk_idx in range(0, len(records), BATCH_SIZE):
+                chunk = records[chunk_idx:chunk_idx + BATCH_SIZE]
+                chunk_number = (chunk_idx // BATCH_SIZE) + 1
+                
+                logger.info(f"📦 Procesando chunk {chunk_number}/{(len(records) + BATCH_SIZE - 1) // BATCH_SIZE}: {len(chunk)} registros")
+                
+                batch = self.client.batch()
+                
+                for idx, record in enumerate(chunk):
+                    try:
+                        # Convertir DataRecord a diccionario
+                        if isinstance(record, DataRecord):
+                            record_dict = record.model_dump(mode="json")
+                            
+                            # Usar el ID generado como ID del documento
+                            firestore_doc_id = record.id
+                            
+                            # Cambiar el campo 'id' interno por el UUID original
+                            record_dict["id"] = log_id
+                            
+                        else:
+                            logger.error(f"❌ Tipo de registro no válido en chunk {chunk_number}, posición {idx}: {type(record)}")
+                            continue
+                        
+                        # Agregar metadatos
+                        record_dict["processed_at"] = firestore.SERVER_TIMESTAMP
+                        record_dict["source_type"] = "batch_calling" if is_batch_calling else "sftp"
+                        
+                        logger.debug(f"📝 Preparando documento {total_saved + idx + 1}:")
+                        logger.debug(f"    🆔 ID documento Firestore: {firestore_doc_id}")
+                        logger.debug(f"    🔗 ID interno (campo 'id'): {record_dict['id']}")
+                        
+                        # Crear referencia al documento con el ID generado
+                        doc_ref = collection_ref.document(firestore_doc_id)
+                        batch.set(doc_ref, record_dict)
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error preparando registro en chunk {chunk_number}, posición {idx}: {e}")
+                        continue
+                
+                # Ejecutar batch write del chunk
+                logger.info(f"🚀 Ejecutando batch write del chunk {chunk_number}: {len(chunk)} documentos...")
+                
+                try:
+                    batch.commit()
+                    total_saved += len(chunk)
+                    logger.info(f"✅ Chunk {chunk_number} guardado exitosamente: {len(chunk)} registros")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error guardando chunk {chunk_number}: {e}")
+                    raise  # Re-lanzar la excepción para que el pipeline maneje el error
+            
+            record_type = "batch calling" if is_batch_calling else "SFTP"
+            logger.info(f"✅ {total_saved} registros {record_type} guardados exitosamente en '{self.collection}'")
+            
+            # Log de verificación con algunos IDs guardados
+            if records:
+                logger.info(f"📋 Documentos creados (primeros 3):")
+                for i, record in enumerate(records[:3]):
+                    logger.info(f"   {i+1}. ID documento: {record.id} → campo 'id': {log_id}")
+                if len(records) > 3:
+                    logger.info(f"   ... y {len(records) - 3} documentos más")
+            
             return True
             
         except Exception as e:
             logger.error(f"❌ Error guardando registros transformados: {e}")
+            logger.exception("Detalles del error:")
             return False
 
     def save_log_record(self, log: LogRecord):

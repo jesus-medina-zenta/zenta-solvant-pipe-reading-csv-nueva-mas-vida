@@ -23,9 +23,17 @@ async def main() -> int:
     logger.info("Iniciando %s en modo %s", config.app_name, config.environment)
 
     try:
-        # Inicializar el pipeline
-        pipeline = Pipeline()
 
+
+        batch_id = None
+        if len(sys.argv) > 1:
+            batch_id = sys.argv[1]
+            logger.info(f"📋 Parámetro de UUID de destino recibido: {batch_id}")
+        else:
+            logger.info("📋 No se recibió ningún parámetro de UUID, usando configuración por defecto")
+
+        #pasar parámetro e inicializar pipeline
+        pipeline = Pipeline(batch_id=batch_id)
         # Ejecutar el pipeline
         result = await pipeline.run()
 
