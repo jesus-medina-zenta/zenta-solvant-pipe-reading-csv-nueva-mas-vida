@@ -10,6 +10,7 @@ from src.enums.status import PipelineType, StatusType
 from src.models.batch_record import BatchCallingRecord, BatchRecord
 from src.models.data_models import DataRecord
 from src.models.log_record import LogRecord
+from src.services.backend_service import BackendApiService
 from src.services.firestore_service import FirestoreService
 from src.services.gcs_service import CloudStorageService
 from src.utils.logger import get_logger
@@ -26,8 +27,10 @@ class Pipeline:
     
     def __init__(self, batch_id: Optional[str] = None):
         """Inicializa el pipeline con los servicios necesarios."""
+
         self.firestore_service = FirestoreService()
         self.gcs_service = CloudStorageService()
+        self.backend_service = BackendApiService()
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
         self.batch_id = batch_id
@@ -156,6 +159,7 @@ class Pipeline:
         
         # Determinar qué tipo de registro estamos procesando
         if batch_record:
+            original_record = batch_record
             record = batch_record
             is_backend_mode = True
             is_batch_calling = True
@@ -164,6 +168,7 @@ class Pipeline:
             logger.info(f"📁 Procesando archivo batch calling: {record.id_carga}")
             logger.info(f"📊 Batch: {record.call_name}, Tipo: {record.file_type}, Tamaño: {record.file_size} bytes")
         else:
+            original_record = log_record
             record = log_record
             is_backend_mode = False
             is_batch_calling = False
@@ -271,12 +276,22 @@ class Pipeline:
             
             logger.info(f"✅ Archivo {original_batch_id} ({record_type}) procesado exitosamente en {duration:.2f}s")
             logger.info(f"📊 Estadísticas: {len(raw_data)} extraídos, {len(transformed_data)} transformados, {len(transformed_data)} cargados")
-            
+            #6. Notificar al backend 
+            await self.notify_backend_completion(
+                original_batch_id,
+                record_type,
+                original_record
+            )
             return True
             
         except Exception as e:
             logger.exception(f"❌ Error procesando archivo {original_batch_id}: {e}")
-            await self.mark_as_error(record, [f"Error crítico en procesamiento: {str(e)}"], is_backend_mode)
+            await self.notify_backend_error(
+                original_batch_id, 
+                original_record
+            )
+            
+            await self.mark_as_error(record, [f"Error crítico en procesamiento: {str(e)}"], is_backend_mode, original_batch_id)
             return False
         
     async def extract_from_gcs(self, gcs_url: str) -> List[Dict[str, Any]]:
@@ -441,6 +456,68 @@ class Pipeline:
         except Exception as e:
             logger.error(f"❌ Error crítico en transformación: {e}")
             return [], [f"❌ Error crítico en transformación: {e}"]
+    async def notify_backend_completion(self, carga_id: str, pipeline_type: str, record: RecordType) -> None:
+        """
+        Notifica al backend que el pipeline se completó exitosamente.
+        
+        Args:
+            carga_id: ID de la carga procesada (UUID original del batch/archivo)
+            pipeline_type: Tipo de pipeline ("BATCH_CALLING" o "SFTP")
+            stats: Estadísticas del procesamiento
+        """
+        try:
+            logger.info(f"📡 Iniciando notificación de completion al backend...")
+            logger.info(f"🆔 ID de carga a notificar: {carga_id}")
+            
+            # Ejecutar notificación en thread separado para no bloquear
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(
+                None,
+                self.backend_service.notify_pipeline_completion,
+                carga_id,
+                pipeline_type,
+                record
+            )
+            
+            if success:
+                logger.info(f"✅ Backend notificado exitosamente para {record.pipeline_type}: {carga_id}")
+            else:
+                logger.warning(f"⚠️ Falló notificación al backend para {record.pipeline_type}: {carga_id}")
+                logger.warning(f"⚠️ El procesamiento fue exitoso, pero el backend no fue notificado")
+                
+        except Exception as e:
+            logger.error(f"❌ Error notificando completion al backend: {e}")
+            logger.warning(f"⚠️ El procesamiento fue exitoso, pero falló la notificación al backend")
+
+    async def notify_backend_error(self, carga_id: str, pipeline_type: str, error_details: Dict[str, Any], record: RecordType) -> None:
+        """
+        Notifica al backend que el pipeline falló.
+        
+        Args:
+            carga_id: ID de la carga procesada (UUID original)
+            pipeline_type: Tipo de pipeline ("BATCH_CALLING" o "SFTP")
+            error_details: Detalles del error
+        """
+        try:
+            logger.info(f"🚨 Notificando error al backend...")
+            logger.info(f"🆔 ID de carga con error: {carga_id}")
+            logger.info(f"📋 Tipo de pipeline: {pipeline_type}")
+            
+            # Ejecutar notificación en thread separado
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                self.backend_service.notify_pipeline_error,
+                carga_id,
+                pipeline_type,
+                error_details,
+                record
+            )
+            
+            logger.info(f"✅ Error notificado al backend para {pipeline_type}: {carga_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error notificando error al backend: {e}")
         
     async def mark_as_error(self, record: RecordType, error_messages, is_backend_mode: bool, original_id: str = None) -> None:
         """
@@ -469,9 +546,11 @@ class Pipeline:
             truncated_errors.append(f"... y {len(errors_list) - max_errors} errores más (truncado)")
             errors_list = truncated_errors
         
-        # Usar original_id si está disponible, sino usar record.id
+        # Determinar tipo y ID
+        record_type = "BATCH_CALLING" if is_backend_mode else "SFTP"
         update_id = original_id if original_id else record.id
         
+        # Actualizar estado en Firestore
         self.firestore_service.update_log_status(
             update_id, 
             StatusType.ERROR,
@@ -481,7 +560,19 @@ class Pipeline:
             pipeline_type=PipelineType.TRANSFORMATION.value 
         )
         
-        record_type = "BATCH" if is_backend_mode else "SFTP"
+        # Notificar error al backend
+        await self.notify_backend_error(
+            update_id,
+            record_type,
+            {
+                "errores": errors_list,
+                "error_count": len(errors_list),
+                "fecha_fin": end_time.isoformat(),
+                "pipeline_stage": "error_handling",
+                "error_type": "processing_error"
+            }
+        )
+        
         logger.error(f"❌ Archivo {update_id} ({record_type}) marcado como ERROR con {len(errors_list)} mensajes")
     
     async def cleanup(self):
