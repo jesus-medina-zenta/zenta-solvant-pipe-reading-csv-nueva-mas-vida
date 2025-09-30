@@ -64,7 +64,7 @@ class BackendApiService:
             bool: True si la notificación fue exitosa
         """
         try:
-            endpoint = f"{self.backend_url}/batchcalls/send-batch-calling"
+            endpoint = f"{self.backend_url}/api/v1/zenta/batchcalls/send-batch-calling"
             fecha_actual = datetime.now()
             fecha_str = fecha_actual.strftime("%d%m%Y")
             if pipeline_type == "BATCH_CALLING":
