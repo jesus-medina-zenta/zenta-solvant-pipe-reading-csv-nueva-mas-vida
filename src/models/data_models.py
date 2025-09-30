@@ -187,14 +187,21 @@ class DataRecord(BaseModel):
             if phone_2 == "+56":
                 phone_2 = ""
             
-            # Extraer ID limpio
-            id_parte = carga_id.split('-', 1)[1] if '-' in carga_id else carga_id
+            # Si el carga_id empieza con fecha (ddmmyyyy-), mantener el ID completo para batch calling
+            if carga_id and len(carga_id) > 8 and carga_id[8] == '-' and carga_id[:8].isdigit():
+                # Es formato ddmmyyyy-uuid_numero (batch calling) - mantener completo
+                id_final = carga_id
+                logger.debug(f"ID batch calling detectado - usando ID completo: {id_final}")
+            else:
+                # Es formato traditional - extraer parte después del primer guión
+                id_final = carga_id.split('-', 1)[1] if '-' in carga_id else carga_id
+                logger.debug(f"ID tradicional detectado - usando ID cortado: {id_final}")
             
-            logger.debug(f"Registro creado exitosamente desde dict: phone_number='{phone_1}', phone_number_2='{phone_2}'")
+            logger.debug(f"Registro creado exitosamente desde dict: phone_number='{phone_1}', phone_number_2='{phone_2}', id='{id_final}'")
             
             return cls(
                 fecha=fecha_utc,
-                id=id_parte,
+                id=id_final,  # ✅ Usar el ID determinado automáticamente
                 phone_number=phone_1[:15],
                 phone_number_2=phone_2[:15] if phone_2 else "",
                 metadata_user=metadata

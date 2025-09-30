@@ -44,9 +44,24 @@ class FirestoreConfig(BaseSettings):
     collection: str
     database: str
     logs_collection: str
+    batch_collection: str
 
     model_config = {
         "env_prefix": "FIRESTORE_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
+
+class BackendConfig(BaseSettings):
+    backend_service_url: str = Field(description="URL del servicio backend")
+    backend_timeout: int = Field(default=30, description="Timeout para llamadas al backend en segundos")
+    backend_payload_agent: Optional[str] = Field(default=None, description="ID del agente para payload por defecto")
+    backend_payload_callname: Optional[str] = Field(default=None, description="Nombre de la llamada para payload por defecto")
+    backend_payload_agent_phone_number_id: Optional[str] = Field(default=None, description="ID del número de teléfono del agente para payload por defecto")
+
+    model_config = {
+        "env_prefix": "BACKEND_",
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "extra": "ignore"
@@ -71,6 +86,8 @@ def get_firestore_config() -> FirestoreConfig:
 # Instancia global de configuración (solo se crea cuando se necesita)
 config: Optional[AppConfig] = None
 
+def get_backend_config() -> BackendConfig:
+    return BackendConfig()
 
 def init_config() -> AppConfig:
     """
