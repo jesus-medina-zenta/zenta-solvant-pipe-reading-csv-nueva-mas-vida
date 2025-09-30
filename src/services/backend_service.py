@@ -16,7 +16,7 @@ class BackendApiService:
     
     def __init__(self):
         backend_config = get_backend_config()
-        self.backend_url = backend_config.backend_service_url
+        self.backend_url = backend_config.service_url
 
         # Preparar autenticación
         self.auth_request = google.auth.transport.requests.Request()
@@ -77,9 +77,9 @@ class BackendApiService:
             else: 
                 payload = {
                     "id_carga": carga_id,
-                    "agent_id": get_backend_config().backend_payload_agent,
-                    "call_name": f"{fecha_str}_{get_backend_config().backend_payload_callname}",
-                    "agent_phone_number_id": get_backend_config().backend_payload_agent_phone_number_id
+                    "agent_id": get_backend_config().payload_agent,
+                    "call_name": f"{fecha_str}_{get_backend_config().payload_callname}",
+                    "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
                 }
             
             print("="*100)
