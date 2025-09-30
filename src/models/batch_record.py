@@ -13,7 +13,7 @@ class BatchRecord(BaseModel):
     id_carga: str = Field(..., description="UUID del archivo")
     call_name: str = Field(..., description="Nombre del batch")
     agent_id: str = Field(..., description="ID del agente")
-    phone_idagent_phone_number_id: str = Field(..., description="ID del teléfono")
+    agent_phone_number_id: str = Field(..., description="ID del teléfono")
     file_name: str = Field(..., description="Nombre del archivo")
     file_path: str = Field(..., description="Ruta del archivo en GCS")
     file_type: str = Field(..., description="Tipo de archivo (csv, xlsx)")

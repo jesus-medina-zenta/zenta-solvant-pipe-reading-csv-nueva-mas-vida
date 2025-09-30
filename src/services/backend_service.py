@@ -73,7 +73,7 @@ class BackendApiService:
                     "id_carga": carga_id,
                     "agent_id": record.agent_id,
                     "call_name": record.call_name,
-                    "agent_phone_number_id": record.phone_idagent_phone_number_id,
+                    "agent_phone_number_id": record.agent_phone_number_id,
                 }
             else: 
                 payload = {
