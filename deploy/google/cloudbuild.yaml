@@ -46,6 +46,7 @@ steps:
       - '--set-env-vars=FIRESTORE_PROJECT_ID=$PROJECT_ID'
       - '--set-env-vars=FIRESTORE_COLLECTION=${_FIRESTORE_COLLECTION}'
       - '--set-env-vars=FIRESTORE_LOGS_COLLECTION=${_FIRESTORE_LOGS_COLLECTION}'
+      - '--set-env-vars=FIRESTORE_BATCH_COLLECTION=${_FIRESTORE_BATCH_COLLECTION}'
       - '--set-env-vars=FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}'
       - '--set-env-vars=GCS_BUCKET_NAME=${_GCS_BUCKET_NAME}'
       - '--set-env-vars=GCS_PROJECT_ID=$PROJECT_ID'
