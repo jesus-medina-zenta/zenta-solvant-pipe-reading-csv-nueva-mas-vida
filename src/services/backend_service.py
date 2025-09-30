@@ -1,6 +1,7 @@
 """
 Servicio para comunicación con el backend API usando Google Cloud Authentication.
 """
+from datetime import datetime
 import requests
 import google.auth.transport.requests
 from google.oauth2 import id_token
@@ -65,7 +66,8 @@ class BackendApiService:
         """
         try:
             endpoint = f"{self.backend_url}/batchcalls/send-batch-calling"
-            
+            fecha_actual = datetime.now()
+            fecha_str = fecha_actual.strftime("%d%m%Y")
             if pipeline_type == "BATCH_CALLING":
                 payload = {
                     "id_carga": carga_id,
@@ -77,7 +79,7 @@ class BackendApiService:
                 payload = {
                     "id_carga": carga_id,
                     "agent_id": get_backend_config().backend_payload_agent,
-                    "call_name": get_backend_config().backend_payload_callname,
+                    "call_name": f"{fecha_str}_{get_backend_config().backend_payload_callname}",
                     "agent_phone_number_id": get_backend_config().backend_payload_agent_phone_number_id
                 }
             
