@@ -3,7 +3,7 @@ Punto de entrada principal de la aplicación.
 """
 import sys
 import asyncio
-
+import os
 from src.config import init_config
 from src.pipeline import Pipeline
 from src.utils.logger import get_logger
@@ -21,7 +21,9 @@ async def main() -> int:
         int: Código de salida (0 para éxito, 1 para error)
     """
     logger.info("Iniciando %s en modo %s", config.app_name, config.environment)
-
+    logger.info("🔍 Variables de entorno al iniciar el pipeline:")
+    for key, value in os.environ.items():
+        logger.info(f"{key} = {value}")
     try:
 
 

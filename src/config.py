@@ -55,7 +55,6 @@ class FirestoreConfig(BaseSettings):
 
 class BackendConfig(BaseSettings):
     backend_service_url: str = Field(description="URL del servicio backend")
-    backend_timeout: int = Field(default=30, description="Timeout para llamadas al backend en segundos")
     backend_payload_agent: Optional[str] = Field(default=None, description="ID del agente para payload por defecto")
     backend_payload_callname: Optional[str] = Field(default=None, description="Nombre de la llamada para payload por defecto")
     backend_payload_agent_phone_number_id: Optional[str] = Field(default=None, description="ID del número de teléfono del agente para payload por defecto")
