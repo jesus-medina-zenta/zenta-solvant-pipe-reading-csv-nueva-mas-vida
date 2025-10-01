@@ -286,17 +286,6 @@ class Pipeline:
             
         except Exception as e:
             logger.exception(f"❌ Error procesando archivo {original_batch_id}: {e}")
-            await self.notify_backend_error(
-                original_batch_id, 
-                original_record,
-                {
-                    "error_message": str(e),
-                    "error_type": "critical_processing_error",
-                    "fecha_fin": datetime.now(timezone.utc).isoformat(),
-                    "pipeline_type": "processing"
-                },
-                record
-            )
             
             await self.mark_as_error(record, [f"Error crítico en procesamiento: {str(e)}"], is_backend_mode, original_batch_id)
             return False
