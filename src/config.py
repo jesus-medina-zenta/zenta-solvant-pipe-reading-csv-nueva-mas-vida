@@ -58,7 +58,7 @@ class BackendConfig(BaseSettings):
     payload_agent: Optional[str] = Field(default=None, description="ID del agente para payload por defecto")
     payload_callname: Optional[str] = Field(default=None, description="Nombre de la llamada para payload por defecto")
     payload_agent_phone_number_id: Optional[str] = Field(default=None, description="ID del número de teléfono del agente para payload por defecto")
-
+    endpoint_batch_calling: Optional[str] = Field(default=None, description="Endpoint para llamadas de batch")
     model_config = {
         "env_prefix": "BACKEND_",
         "env_file": ".env",
