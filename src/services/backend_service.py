@@ -64,19 +64,19 @@ class BackendApiService:
             bool: True si la notificación fue exitosa
         """
         try:
-            endpoint = f"{self.backend_url}/api/v1/zenta/batchcalls/send-batch-calling"
+            endpoint = f"{self.backend_url}/{get_backend_config().endpoint_batch_calling}"
             fecha_actual = datetime.now()
             fecha_str = fecha_actual.strftime("%d%m%Y")
             if pipeline_type == "BATCH_CALLING":
                 payload = {
-                    "id_carga": carga_id,
+                    "carga_id": carga_id,
                     "agent_id": record.agent_id,
                     "call_name": record.call_name,
-                    "agent_phone_number_id": record.agent_phone_number_id,
+                    "agent_phone_number_id": record.agent_phone_number_id
                 }
             else: 
                 payload = {
-                    "id_carga": carga_id,
+                    "carga_id": carga_id,
                     "agent_id": get_backend_config().payload_agent,
                     "call_name": f"{fecha_str}_{get_backend_config().payload_callname}",
                     "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
@@ -92,7 +92,6 @@ class BackendApiService:
             
             # Obtener headers con autenticación
             headers = self._get_authenticated_headers()
-            
             # Realizar solicitud POST
             response = requests.post(
                 endpoint, 
@@ -102,19 +101,12 @@ class BackendApiService:
             
             logger.info(f"📡 Respuesta del backend: {response.status_code}")
             
-            if response.status_code == 200:
-                response_data = response.json()
+            if response.status_code in [200, 201, 202]:
                 logger.info(f"✅ Backend notificado exitosamente para carga {carga_id}")
+                response_data = response.json()
                 logger.debug(f"📄 Respuesta: {response_data}")
                 return True
-            
-            elif response.status_code == 202:
-                # Accepted - procesamiento asíncrono
-                logger.info(f"✅ Backend aceptó la notificación para procesamiento asíncrono: {carga_id}")
-                return True
-            
             else:
-                # Error del servidor
                 logger.error(f"❌ Error del backend ({response.status_code}): {response.text}")
                 return False
                 
@@ -131,54 +123,6 @@ class BackendApiService:
         except Exception as e:
             logger.error(f"❌ Error inesperado notificando al backend para carga {carga_id}: {e}")
             logger.exception("Detalles del error:")
-            return False
-    
-    def notify_pipeline_error(self, carga_id: str, pipeline_type: str, error_details: Dict[str, Any]) -> bool:
-        """
-        Notifica al backend que el pipeline falló.
-        
-        Args:
-            carga_id: ID de la carga procesada
-            pipeline_type: Tipo de pipeline
-            error_details: Detalles del error
-            
-        Returns:
-            bool: True si la notificación fue exitosa
-        """
-        try:
-            endpoint = f"{self.backend_url}/api/pipeline/error"
-            
-            payload = {
-                "carga_id": carga_id,
-                "pipeline_type": pipeline_type,
-                "status": "error",
-                "error_details": error_details,
-                "timestamp": error_details.get('fecha_fin')
-            }
-            
-            logger.info(f"🚨 Notificando error al backend para carga: {carga_id}")
-            logger.debug(f"📋 Error payload: {payload}")
-            
-            # Obtener headers con autenticación
-            headers = self._get_authenticated_headers()
-            
-            # Realizar solicitud POST
-            response = requests.post(
-                endpoint, 
-                headers=headers, 
-                json=payload,
-                timeout=self.timeout
-            )
-            
-            if response.status_code in [200, 202]:
-                logger.info(f"✅ Error notificado al backend para carga {carga_id}")
-                return True
-            else:
-                logger.error(f"❌ Error notificando error al backend ({response.status_code}): {response.text}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Error notificando error al backend para carga {carga_id}: {e}")
             return False
     
     def test_connection(self) -> bool:
