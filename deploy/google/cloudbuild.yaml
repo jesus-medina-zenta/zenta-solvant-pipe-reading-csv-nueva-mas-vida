@@ -55,6 +55,7 @@ steps:
       - '--set-env-vars=BACKEND_PAYLOAD_CALLNAME=${_BACKEND_PAYLOAD_CALLNAME}'
       - '--set-env-vars=BACKEND_PAYLOAD_AGENT_PHONE_NUMBER_ID=${_BACKEND_PAYLOAD_AGENT_PHONE_NUMBER_ID}'
       - '--set-env-vars=BACKEND_ENDPOINT_BATCH_CALLING=${BACKEND_ENDPOINT_BATCH_CALLING}'
+      
 
 
 # Configuraciones adicionales
