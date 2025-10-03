@@ -3,6 +3,7 @@ Data models using Pydantic for validation.
 """
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict
+import uuid
 from src.utils.logger import get_logger
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
@@ -15,6 +16,9 @@ class DataRecord(BaseModel):
     phone_number: str = Field(..., max_length=15, description="Teléfono principal")
     phone_number_2: Optional[str] = Field("", max_length=15, description="Teléfono secundario")
     metadata_user: MetadataUser = Field(..., description="Datos del usuario agrupados")
+
+    track_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="ID único para tracking interno")
+    track_status: str = Field(default="queued_call", description="Estado del tracking interno")
 
     @classmethod
     def from_line(cls, line: str, carga_id: str, fecha_utc: str) -> "DataRecord":

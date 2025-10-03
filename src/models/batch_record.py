@@ -3,6 +3,7 @@ Modelo para registros de batch (colección backend).
 """
 from datetime import datetime
 from typing import Optional
+import uuid
 from pydantic import BaseModel, Field, ConfigDict, validator
 import re
 
@@ -112,7 +113,11 @@ class BatchCallingRecord(BaseModel):
     # Campos adicionales para compatibilidad con DataRecord
     id_carga: str = Field(..., description="ID de carga desde registro_archivos")
     fecha_carga: datetime = Field(..., description="Fecha de procesamiento")
-    
+
+    #TRACK PARA CONTROL INTERNO
+    track_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="ID único para tracking interno")
+    track_status: str = Field(default="queued_call", description="Estado del tracking interno")
+
     model_config = ConfigDict(
         validate_assignment=True,
         use_enum_values=True,
