@@ -186,12 +186,16 @@ class FirestoreService:
         
         Args:
             records: Lista de registros DataRecord transformados
-            log_id: ID del log original (UUID del batch)
+            log_id: ID del log original (puede tener fechas duplicadas)
             is_batch_calling: True si son registros de batch calling
         """
         try:
             logger.info(f"💾 Guardando {len(records)} registros en colección '{self.collection}'")
-            logger.info(f"📋 Tipo: {'Batch Calling' if is_batch_calling else 'SFTP'}, Batch UUID: {log_id}")
+            logger.info(f"📋 Tipo: {'Batch Calling' if is_batch_calling else 'SFTP'}, Log ID original: {log_id}")
+            
+            # LIMPIAR log_id quitando fechas duplicadas para el ID base del documento
+            clean_log_id = self._remove_duplicate_dates(log_id)
+            logger.info(f"🧹 Log ID limpio: {clean_log_id}")
             
             collection_ref = self.client.collection(self.collection)
             
@@ -213,11 +217,19 @@ class FirestoreService:
                         if isinstance(record, DataRecord):
                             record_dict = record.model_dump(mode="json")
                             
-                            # Usar el ID generado como ID del documento
-                            firestore_doc_id = record.id
+                            # CREAR ID del documento: log_id limpio + sufijo
+                            global_record_idx = chunk_idx + idx + 1
+                            firestore_doc_id = f"{clean_log_id}_{global_record_idx}"
                             
-                            # Cambiar el campo 'id' interno por el UUID original
-                            record_dict["id"] = log_id
+                            # LIMPIAR ID interno: solo UUID puro
+                            clean_internal_id = self._extract_pure_uuid(record.id)
+                            record_dict["id"] = clean_internal_id
+                            
+                            logger.debug(f"📝 Preparando documento {global_record_idx}:")
+                            logger.debug(f"    🆔 ID documento Firestore: {firestore_doc_id}")
+                            logger.debug(f"    🔗 record.id original: {record.id}")
+                            logger.debug(f"    🧹 ID interno limpio: {clean_internal_id}")
+                            logger.debug(f"    🏷️ Track ID: {record_dict.get('track_id', 'N/A')}")
                             
                         else:
                             logger.error(f"❌ Tipo de registro no válido en chunk {chunk_number}, posición {idx}: {type(record)}")
@@ -227,11 +239,8 @@ class FirestoreService:
                         record_dict["processed_at"] = firestore.SERVER_TIMESTAMP
                         record_dict["source_type"] = "batch_calling" if is_batch_calling else "sftp"
                         
-                        logger.debug(f"📝 Preparando documento {total_saved + idx + 1}:")
-                        logger.debug(f"    🆔 ID documento Firestore: {firestore_doc_id}")
-                        logger.debug(f"    🔗 ID interno (campo 'id'): {record_dict['id']}")
                         
-                        # Crear referencia al documento con el ID generado
+                        # Crear referencia al documento con el ID limpio
                         doc_ref = collection_ref.document(firestore_doc_id)
                         batch.set(doc_ref, record_dict)
                         
@@ -258,7 +267,10 @@ class FirestoreService:
             if records:
                 logger.info(f"📋 Documentos creados (primeros 3):")
                 for i, record in enumerate(records[:3]):
-                    logger.info(f"   {i+1}. ID documento: {record.id} → campo 'id': {log_id}")
+                    clean_internal_id = self._extract_pure_uuid(record.id)
+                    firestore_doc_id = f"{clean_log_id}_{i+1}"
+                    logger.info(f"   {i+1}. ID documento: {firestore_doc_id}")
+                    logger.info(f"      Campo 'id' interno: {clean_internal_id}")
                 if len(records) > 3:
                     logger.info(f"   ... y {len(records) - 3} documentos más")
             
@@ -268,6 +280,61 @@ class FirestoreService:
             logger.error(f"❌ Error guardando registros transformados: {e}")
             logger.exception("Detalles del error:")
             return False
+
+    def _remove_duplicate_dates(self, id_with_dates: str) -> str:
+        """
+        Remueve fechas duplicadas del ID, manteniendo solo la primera.
+        
+        Entrada: "03102025-03102025-0e91aea9-2bfa-4433-b8c2-a7cc7d6d71e1"
+        Salida: "03102025-0e91aea9-2bfa-4433-b8c2-a7cc7d6d71e1"
+        """
+        if not id_with_dates:
+            return id_with_dates
+        
+        parts = id_with_dates.split('-')
+        
+        # Filtrar fechas duplicadas (mantener solo la primera)
+        cleaned_parts = []
+        found_date = False
+        
+        for part in parts:
+            if part.isdigit() and len(part) == 8:  # Es una fecha
+                if not found_date:
+                    cleaned_parts.append(part)  # Mantener primera fecha
+                    found_date = True
+                # Saltar fechas adicionales
+            else:
+                cleaned_parts.append(part)  # Mantener partes no-fecha
+        
+        result = '-'.join(cleaned_parts)
+        logger.debug(f"🧹 Limpiando fechas duplicadas: '{id_with_dates}' → '{result}'")
+        return result
+
+    def _extract_pure_uuid(self, id_with_date: str) -> str:
+        """
+        Extrae UUID puro sin fechas ni sufijos.
+        
+        Entrada: "03102025-0e91aea9-2bfa-4433-b8c2-a7cc7d6d71e1"
+        Salida: "0e91aea9-2bfa-4433-b8c2-a7cc7d6d71e1"
+        """
+        if not id_with_date:
+            return id_with_date
+        
+        parts = id_with_date.split('-')
+        
+        # Buscar primera parte que NO sea fecha
+        uuid_parts = []
+        for part in parts:
+            if not (part.isdigit() and len(part) == 8):  # No es fecha
+                uuid_parts.append(part)
+        
+        # Si la última parte tiene sufijo (_1, _2), quitarlo
+        if uuid_parts and '_' in uuid_parts[-1]:
+            uuid_parts[-1] = uuid_parts[-1].split('_')[0]
+        
+        result = '-'.join(uuid_parts)
+        logger.debug(f"🧹 Extrayendo UUID puro: '{id_with_date}' → '{result}'")
+        return result
 
     def save_log_record(self, log: LogRecord):
         """Guarda o actualiza un registro de log."""

@@ -50,7 +50,7 @@ class BackendApiService:
         except Exception as e:
             logger.error(f"❌ Error obteniendo token de autenticación: {e}")
             raise
-    
+
     def notify_pipeline_completion(self, carga_id: str, pipeline_type: str, record) -> bool:
         """
         Notifica al backend que el pipeline se completó exitosamente.
