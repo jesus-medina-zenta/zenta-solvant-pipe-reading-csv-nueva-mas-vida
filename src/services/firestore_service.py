@@ -4,6 +4,7 @@ from src.enums.status import StatusType
 from src.models.batch_record import BatchRecord
 from src.models.log_record import LogRecord
 from src.models.data_models import DataRecord
+from src.utils.date_id import DateIdUtils
 from src.utils.logger import get_logger
 from src.config import get_firestore_config
 import os
@@ -183,23 +184,18 @@ class FirestoreService:
     def save_transformed_records(self, records: list, log_id: str, is_batch_calling: bool = False):
         """
         Guarda registros transformados en Firestore.
-        
-        Args:
-            records: Lista de registros DataRecord transformados
-            log_id: ID del log original (puede tener fechas duplicadas)
-            is_batch_calling: True si son registros de batch calling
         """
         try:
             logger.info(f"💾 Guardando {len(records)} registros en colección '{self.collection}'")
             logger.info(f"📋 Tipo: {'Batch Calling' if is_batch_calling else 'SFTP'}, Log ID original: {log_id}")
             
-            # LIMPIAR log_id quitando fechas duplicadas para el ID base del documento
-            clean_log_id = self._remove_duplicate_dates(log_id)
+            # ✅ USAR servicio centralizado para limpiar fechas duplicadas
+            clean_log_id = DateIdUtils.clean_id_for_firestore_document(log_id)
             logger.info(f"🧹 Log ID limpio: {clean_log_id}")
             
             collection_ref = self.client.collection(self.collection)
             
-            BATCH_SIZE = 500  # Límite de Firestore
+            BATCH_SIZE = 500
             total_saved = 0
             
             # Procesar en chunks
@@ -207,79 +203,57 @@ class FirestoreService:
                 chunk = records[chunk_idx:chunk_idx + BATCH_SIZE]
                 chunk_number = (chunk_idx // BATCH_SIZE) + 1
                 
-                logger.info(f"📦 Procesando chunk {chunk_number}/{(len(records) + BATCH_SIZE - 1) // BATCH_SIZE}: {len(chunk)} registros")
+                logger.info(f"📦 Procesando chunk {chunk_number}: {len(chunk)} registros")
                 
                 batch = self.client.batch()
                 
                 for idx, record in enumerate(chunk):
                     try:
-                        # Convertir DataRecord a diccionario
                         if isinstance(record, DataRecord):
                             record_dict = record.model_dump(mode="json")
                             
-                            # CREAR ID del documento: log_id limpio + sufijo
+                            # ✅ ID del documento con sufijo
                             global_record_idx = chunk_idx + idx + 1
                             firestore_doc_id = f"{clean_log_id}_{global_record_idx}"
                             
-                            # LIMPIAR ID interno: solo UUID puro
-                            clean_internal_id = self._extract_pure_uuid(record.id)
+                            # ✅ USAR servicio centralizado para limpiar ID interno
+                            clean_internal_id = DateIdUtils.extract_pure_uuid(record.id)
                             record_dict["id"] = clean_internal_id
                             
-                            logger.debug(f"📝 Preparando documento {global_record_idx}:")
-                            logger.debug(f"    🆔 ID documento Firestore: {firestore_doc_id}")
-                            logger.debug(f"    🔗 record.id original: {record.id}")
-                            logger.debug(f"    🧹 ID interno limpio: {clean_internal_id}")
-                            logger.debug(f"    🏷️ Track ID: {record_dict.get('track_id', 'N/A')}")
+                            logger.debug(f"📝 Documento {global_record_idx}: {firestore_doc_id} → id: {clean_internal_id}")
                             
                         else:
-                            logger.error(f"❌ Tipo de registro no válido en chunk {chunk_number}, posición {idx}: {type(record)}")
+                            logger.error(f"❌ Tipo de registro no válido: {type(record)}")
                             continue
                         
                         # Agregar metadatos
                         record_dict["processed_at"] = firestore.SERVER_TIMESTAMP
                         record_dict["source_type"] = "batch_calling" if is_batch_calling else "sftp"
+                        record_dict["log_id_origen"] = log_id
                         
-                        
-                        # Crear referencia al documento con el ID limpio
+                        # Crear referencia al documento
                         doc_ref = collection_ref.document(firestore_doc_id)
                         batch.set(doc_ref, record_dict)
                         
                     except Exception as e:
-                        logger.error(f"❌ Error preparando registro en chunk {chunk_number}, posición {idx}: {e}")
+                        logger.error(f"❌ Error preparando registro {idx}: {e}")
                         continue
                 
-                # Ejecutar batch write del chunk
-                logger.info(f"🚀 Ejecutando batch write del chunk {chunk_number}: {len(chunk)} documentos...")
-                
+                # Ejecutar batch write
                 try:
                     batch.commit()
                     total_saved += len(chunk)
-                    logger.info(f"✅ Chunk {chunk_number} guardado exitosamente: {len(chunk)} registros")
-                    
+                    logger.info(f"✅ Chunk {chunk_number} guardado: {len(chunk)} registros")
                 except Exception as e:
                     logger.error(f"❌ Error guardando chunk {chunk_number}: {e}")
-                    raise  # Re-lanzar la excepción para que el pipeline maneje el error
+                    raise
             
-            record_type = "batch calling" if is_batch_calling else "SFTP"
-            logger.info(f"✅ {total_saved} registros {record_type} guardados exitosamente en '{self.collection}'")
-            
-            # Log de verificación con algunos IDs guardados
-            if records:
-                logger.info(f"📋 Documentos creados (primeros 3):")
-                for i, record in enumerate(records[:3]):
-                    clean_internal_id = self._extract_pure_uuid(record.id)
-                    firestore_doc_id = f"{clean_log_id}_{i+1}"
-                    logger.info(f"   {i+1}. ID documento: {firestore_doc_id}")
-                    logger.info(f"      Campo 'id' interno: {clean_internal_id}")
-                if len(records) > 3:
-                    logger.info(f"   ... y {len(records) - 3} documentos más")
-            
+            logger.info(f"✅ {total_saved} registros guardados exitosamente")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error guardando registros transformados: {e}")
-            logger.exception("Detalles del error:")
-            return False
+            logger.error(f"❌ Error guardando registros: {e}")
+        return False
 
     def _remove_duplicate_dates(self, id_with_dates: str) -> str:
         """
