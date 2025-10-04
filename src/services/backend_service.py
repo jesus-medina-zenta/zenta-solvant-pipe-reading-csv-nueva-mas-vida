@@ -96,7 +96,8 @@ class BackendApiService:
             response = requests.post(
                 endpoint, 
                 headers=headers, 
-                json=payload
+                json=payload,
+                timeout=10
             )
             
             logger.info(f"📡 Respuesta del backend: {response.status_code}")
