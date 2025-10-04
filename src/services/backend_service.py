@@ -6,7 +6,6 @@ import requests
 import google.auth.transport.requests
 from google.oauth2 import id_token
 from typing import Optional, Dict, Any
-from src.utils.date_id import DateIdUtils
 from src.utils.logger import get_logger
 from src.config import get_backend_config, get_config
 
@@ -51,7 +50,7 @@ class BackendApiService:
         except Exception as e:
             logger.error(f"❌ Error obteniendo token de autenticación: {e}")
             raise
-
+    
     def notify_pipeline_completion(self, carga_id: str, pipeline_type: str, record) -> bool:
         """
         Notifica al backend que el pipeline se completó exitosamente.
@@ -68,34 +67,26 @@ class BackendApiService:
             endpoint = f"{self.backend_url}/{get_backend_config().endpoint_batch_calling}"
             fecha_actual = datetime.now()
             fecha_str = fecha_actual.strftime("%d%m%Y")
-            
-            # ✅ USAR servicio centralizado para limpiar ID
-            clean_carga_id = DateIdUtils.clean_id_for_backend(carga_id)
-            print("="*100)
-            print(f"carga_id original: {carga_id}")
-            print(f"clean_carga_id: {clean_carga_id}")
-            print("="*100)
-
-            logger.debug(f"🧹 Limpiando carga_id para notificación:")
-            logger.debug(f"   📋 Original: {carga_id}")
-            logger.debug(f"   🧹 Limpio: {clean_carga_id}")
-            
             if pipeline_type == "BATCH_CALLING":
                 payload = {
-                    "carga_id": clean_carga_id,
+                    "carga_id": carga_id,
                     "agent_id": record.agent_id,
                     "call_name": record.call_name,
                     "agent_phone_number_id": record.agent_phone_number_id
                 }
             else: 
                 payload = {
-                    "carga_id": clean_carga_id,
+                    "carga_id": carga_id,
                     "agent_id": get_backend_config().payload_agent,
                     "call_name": f"{fecha_str}_{get_backend_config().payload_callname}",
                     "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
                 }
             
-            logger.info(f"🌐 Notificando al backend completion de carga: {clean_carga_id}")
+            logger.debug("="*100)
+            logger.debug(f"Payload notificación backend: {payload}")
+            logger.debug("="*100)
+
+            logger.info(f"🌐 Notificando al backend completion de carga: {carga_id}")
             logger.info(f"📡 Endpoint: {endpoint}")
             logger.debug(f"📋 Payload: {payload}")
             
@@ -106,7 +97,7 @@ class BackendApiService:
                 endpoint, 
                 headers=headers, 
                 json=payload,
-                timeout=30
+                timeout=10
             )
             
             logger.info(f"📡 Respuesta del backend: {response.status_code}")
@@ -135,7 +126,6 @@ class BackendApiService:
             logger.exception("Detalles del error:")
             return False
     
-
     def test_connection(self) -> bool:
         """
         Prueba la conexión con el backend.

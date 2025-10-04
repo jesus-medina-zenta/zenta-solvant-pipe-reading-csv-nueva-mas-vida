@@ -352,24 +352,25 @@ class Pipeline:
                         carga_id = f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}"
                         
                         # Mapear campos de batch calling a estructura DataRecord
+                    
                         mapped_data = {
                             'queue': 'BATCH',
                             'queue_id_cyber': 'BATCH',
-                            'rut': f"{row.get('rut', '').strip()}-{row.get('dv', '').strip()}",
+                            'rut': row.get('rut', '').strip(),  # RUT viene completo del CSV
                             'name': row.get('name', '').strip(),
                             'paternal_surname': row.get('paternal_surname', '').strip(),
-                            'maternal_surname': '',
-                            'days_overdue': str(row.get('days_overdue', '')).strip(),
-                            'monthly_payment': str(row.get('monthly_payment', '')).strip(),
+                            'maternal_surname': '',  # No viene en el CSV
+                            'days_overdue': '',  # Se calculará desde overdue_date1
+                            'monthly_payment': str(row.get('overdue_amount1', '')).strip(),  
                             'down_payment_option1': str(row.get('down_payment_option1', '')).strip(),
-                            'process_date': '',
-                            'overdue_date1': row.get('due_date', '').strip(),
-                            'overdue_amount1': '',
-                            'email': row.get('mail', '').strip(),
-                            'card': '',
-                            'expiration_date': '',
+                            'process_date': '',  # Se calculará desde overdue_date1
+                            'overdue_date1': row.get('overdue_date1', '').strip(),  
+                            'overdue_amount1': str(row.get('overdue_amount1', '')).strip(),  
+                            'email': row.get('email', '').strip(), 
+                            'card': '',  # No viene en el CSV
+                            'expiration_date': '',  # No viene en el CSV
                             'personal_phone': row.get('phone_number', '').strip().replace('+56', ''),
-                            'cell_phone': ''
+                            'cell_phone': ''  # No hay segundo teléfono en el CSV
                         }
                         
                         logger.debug(f"📋 Registro batch {idx + 1} - ID: {carga_id}")
