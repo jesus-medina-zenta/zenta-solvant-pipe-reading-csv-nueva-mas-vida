@@ -82,9 +82,9 @@ class BackendApiService:
                     "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
                 }
             
-            print("="*100)
-            print("Payload notificación backend: ", payload)
-            print("="*100)
+            logger.debug("="*100)
+            logger.debug(f"Payload notificación backend: {payload}")
+            logger.debug("="*100)
 
             logger.info(f"🌐 Notificando al backend completion de carga: {carga_id}")
             logger.info(f"📡 Endpoint: {endpoint}")
