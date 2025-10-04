@@ -6,6 +6,8 @@ from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict, validator
 import re
 
+from src.utils.date_id import DateIdUtils
+
 class BatchRecord(BaseModel):
     """
     Modelo para registros de batch de archivos subidos por el backend.
@@ -229,7 +231,7 @@ class BatchCallingRecord(BaseModel):
         """
         # Procesar datos del CSV
         due_date, days_overdue = self.parse_due_date()
-        
+        clean_id_carga = DateIdUtils.clean_id_for_backend(self.id_carga)
         return {
             "phone_number": self.get_phone_with_prefix(),  # Agregar +56
             "agent_name": "",  # No viene en el CSV, campo vacío
@@ -245,7 +247,7 @@ class BatchCallingRecord(BaseModel):
             "overdue_amount1": self.overdue_amount1,  # Mantener campo original
             "down_payment_option1": self.down_payment_option1,
             "overdue_date1": self.overdue_date1,  # Mantener fecha original GMT
-            "id_carga": self.id_carga,
+            "id_carga": clean_id_carga,
             "fecha_carga": self.fecha_carga.isoformat(),
             "tipo_flujo": "batch_calling",
             "processed_at": datetime.now().isoformat()
