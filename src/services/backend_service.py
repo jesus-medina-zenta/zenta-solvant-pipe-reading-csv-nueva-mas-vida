@@ -6,6 +6,7 @@ import requests
 import google.auth.transport.requests
 from google.oauth2 import id_token
 from typing import Optional, Dict, Any
+from src.utils.date_id import DateIdUtils
 from src.utils.logger import get_logger
 from src.config import get_backend_config, get_config
 
@@ -67,16 +68,19 @@ class BackendApiService:
             endpoint = f"{self.backend_url}/{get_backend_config().endpoint_batch_calling}"
             fecha_actual = datetime.now()
             fecha_str = fecha_actual.strftime("%d%m%Y")
+
+            clean_carga_id = DateIdUtils.clean_id_for_backend(carga_id)
+
             if pipeline_type == "BATCH_CALLING":
                 payload = {
-                    "carga_id": carga_id,
+                    "carga_id": clean_carga_id,
                     "agent_id": record.agent_id,
                     "call_name": record.call_name,
                     "agent_phone_number_id": record.agent_phone_number_id
                 }
             else: 
                 payload = {
-                    "carga_id": carga_id,
+                    "carga_id": clean_carga_id,
                     "agent_id": get_backend_config().payload_agent,
                     "call_name": f"{fecha_str}_{get_backend_config().payload_callname}",
                     "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
