@@ -3,7 +3,6 @@ Modelo para registros de batch (colección backend).
 """
 from datetime import datetime
 from typing import Optional
-import uuid
 from pydantic import BaseModel, Field, ConfigDict, validator
 import re
 
@@ -97,36 +96,32 @@ class BatchCallingRecord(BaseModel):
     """
     Modelo para registros de batch calling manual con estructura específica.
     """
-    #  CAMPOS REALES del CSV de batch calling
-    phone_number: str = Field(..., description="Número de teléfono")
+    # Campos del CSV de batch calling (tal como vienen en el CSV)
+    phone_number: str = Field(..., description="Número de teléfono (sin prefijo +56)")
     name: str = Field(..., description="Nombre del cliente")
-    overdue_date1: str = Field(..., description="Fecha de vencimiento")
-    overdue_amount1: float = Field(..., description="Monto vencido")
-    down_payment_option1: float = Field(..., description="Opción de pago inicial")
+    overdue_date1: str = Field(..., description="Fecha de vencimiento en formato GMT")
+    overdue_amount1: int = Field(..., description="Monto vencido")
+    down_payment_option1: int = Field(..., description="Opción de pago inicial")
     paternal_surname: str = Field(..., description="Apellido paterno")
-    rut: str = Field(..., description="RUT completo (con guión y DV)")
+    rut: str = Field(..., description="RUT completo con dígito verificador")
     email: str = Field(..., description="Email del cliente")
     
     # Campos adicionales para compatibilidad con DataRecord
     id_carga: str = Field(..., description="ID de carga desde registro_archivos")
     fecha_carga: datetime = Field(..., description="Fecha de procesamiento")
-
-    # TRACK PARA CONTROL INTERNO
-    track_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="ID único para tracking interno")
-    track_status: str = Field(default="queued_call", description="Estado del tracking interno")
-
+    
     model_config = ConfigDict(
         validate_assignment=True,
         use_enum_values=True,
         json_schema_extra={
             "example": {
-                "phone_number": "+56937752692",
+                "phone_number": "937752692",
                 "name": "Nicolás",
-                "overdue_date1": "15-09-2025",
-                "overdue_amount1": 800000.0,
-                "down_payment_option1": 8000.0,
+                "overdue_date1": "Wed Oct 15 2025 00:00:00 GMT+0000 (Coordinated Universal Time)",
+                "overdue_amount1": 800000,
+                "down_payment_option1": 8000,
                 "paternal_surname": "Gomez",
-                "rut": "19333839-9",
+                "rut": "193338399",
                 "email": "nicolas.fernandez@zentagroup.com",
                 "id_carga": "c10ed9e3-e666-4d41-a75b-e351c080332b",
                 "fecha_carga": "2025-09-29T16:25:14.178000Z"
@@ -137,106 +132,68 @@ class BatchCallingRecord(BaseModel):
     @validator('phone_number')
     def validate_phone_number(cls, v):
         """Valida formato de número de teléfono."""
-        if not v:
-            raise ValueError('Número de teléfono requerido')
-        
-        # Limpiar el número
+        # Limpiar el número (remover espacios)
         clean_number = str(v).strip().replace(' ', '').replace('-', '')
-        
-        # Si no tiene +56, agregarlo si es un número chileno válido
-        if not clean_number.startswith('+56'):
-            if clean_number.startswith('56') and len(clean_number) == 11:
-                clean_number = '+' + clean_number
-            elif len(clean_number) == 9:
-                clean_number = '+56' + clean_number
-            else:
-                raise ValueError('Formato de teléfono inválido')
-        
-        # Validar formato final
-        if not re.match(r'^\+56\d{9}$', clean_number):
-            raise ValueError('Formato de teléfono inválido. Debe ser +56XXXXXXXXX')
-        
+        # Validar que sea numérico y tenga 9 dígitos
+        if not clean_number.isdigit() or len(clean_number) != 9:
+            raise ValueError(f'Formato de teléfono inválido: {v}. Debe tener 9 dígitos')
         return clean_number
     
-    @validator('email')
+    @validator('email', pre=True)
     def validate_email(cls, v):
-        """Valida formato básico de email."""
-        if v and '@' not in v:
-            raise ValueError('Formato de email inválido')
-        return str(v).strip() if v else ""
+        """Valida y limpia el email."""
+        v_str = str(v).strip()
+        # Manejar casos especiales de emails malformados
+        if v_str in ['[object Object]', 'NaN', 'null', 'undefined', '']:
+            return ""
+        # Validación básica de email
+        if v_str and '@' not in v_str:
+            return ""  # Email inválido, devolver vacío
+        return v_str
     
     @validator('rut')
     def validate_rut(cls, v):
-        """Valida formato de RUT chileno completo."""
-        if not v:
-            raise ValueError('RUT requerido')
-        
-        # Limpiar RUT
-        clean_rut = str(v).strip().upper().replace('.', '')
-        
-        # Validar formato básico
-        if '-' not in clean_rut:
-            raise ValueError('RUT debe incluir guión y dígito verificador (ej: 12345678-9)')
-        
-        rut_parts = clean_rut.split('-')
-        if len(rut_parts) != 2:
-            raise ValueError('Formato de RUT inválido')
-        
-        rut_number, dv = rut_parts
-        
-        # Validar que la parte numérica sea válida
-        if not rut_number.isdigit() or len(rut_number) < 7:
-            raise ValueError('Parte numérica del RUT inválida')
-        
-        # Validar dígito verificador
-        if dv not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'K']:
-            raise ValueError('Dígito verificador inválido')
-        
-        return clean_rut
+        """Valida que el RUT tenga formato correcto."""
+        rut_str = str(v).strip().replace('.', '').replace('-', '')
+        if not rut_str:
+            raise ValueError('RUT no puede estar vacío')
+        return rut_str
     
-    @validator('overdue_amount1', 'down_payment_option1')
-    def validate_amounts(cls, v):
-        """Valida que los montos sean números positivos."""
+    def get_full_rut(self) -> str:
+        """Retorna RUT completo (ya viene completo del CSV)."""
+        return self.rut
+    
+    def get_phone_with_prefix(self) -> str:
+        """Retorna el teléfono con prefijo +56."""
+        return f"+56{self.phone_number}"
+    
+    def parse_due_date(self) -> tuple[str, int]:
+        """Parsea la fecha GMT y calcula días vencidos."""
         try:
-            amount = float(v) if v else 0.0
-            if amount < 0:
-                raise ValueError('Los montos no pueden ser negativos')
-            return amount
-        except (ValueError, TypeError):
-            raise ValueError('Monto debe ser un número válido')
-    
-    @validator('name', 'paternal_surname')
-    def validate_names(cls, v):
-        """Valida que los nombres no estén vacíos."""
-        if not v or not str(v).strip():
-            raise ValueError('Nombre y apellido son requeridos')
-        return str(v).strip()
-    
-    def get_rut_parts(self) -> tuple[str, str]:
-        """
-        Retorna las partes del RUT por separado.
-        
-        Returns:
-            tuple: (rut_sin_dv, dv)
-        """
-        if '-' in self.rut:
-            parts = self.rut.split('-')
-            return parts[0], parts[1]
-        return self.rut, ""
-    
-    def get_full_name(self) -> str:
-        """Retorna el nombre completo."""
-        return f"{self.name} {self.paternal_surname}".strip()
+            # Extraer la fecha del formato GMT
+            if "GMT" in self.overdue_date1:
+                date_part = self.overdue_date1.split(" GMT")[0]
+                parsed_date = datetime.strptime(date_part, "%a %b %d %Y %H:%M:%S")
+                formatted_date = parsed_date.strftime("%d-%m-%Y")
+                
+                # Calcular días vencidos
+                today = datetime.now().date()
+                due_date_obj = parsed_date.date()
+                days_overdue = max(0, (today - due_date_obj).days)
+                return formatted_date, days_overdue
+            else:
+                return self.overdue_date1, 0
+        except Exception:
+            return self.overdue_date1, 0
     
     def is_valid(self) -> bool:
         """Verifica si el registro es válido."""
         return (
             bool(self.phone_number) and
             bool(self.name) and
-            bool(self.paternal_surname) and
             bool(self.rut) and
-            self.overdue_amount1 >= 0 and
-            self.down_payment_option1 >= 0
+            self.overdue_amount1 > 0 and
+            self.email not in ['[object Object]', '', 'NaN', 'null']
         )
     
     @classmethod
@@ -256,8 +213,8 @@ class BatchCallingRecord(BaseModel):
             phone_number=str(row.get('phone_number', '')).strip(),
             name=str(row.get('name', '')).strip(),
             overdue_date1=str(row.get('overdue_date1', '')).strip(),
-            overdue_amount1=float(row.get('overdue_amount1', 0)) if row.get('overdue_amount1') else 0.0,
-            down_payment_option1=float(row.get('down_payment_option1', 0)) if row.get('down_payment_option1') else 0.0,
+            overdue_amount1=int(row.get('overdue_amount1', 0)),
+            down_payment_option1=int(row.get('down_payment_option1', 0)),
             paternal_surname=str(row.get('paternal_surname', '')).strip(),
             rut=str(row.get('rut', '')).strip(),
             email=str(row.get('email', '')).strip(),
@@ -268,25 +225,28 @@ class BatchCallingRecord(BaseModel):
     def to_firestore_dict(self) -> dict:
         """
         Convierte el registro a diccionario para Firestore (registros_sftp).
+        Aquí es donde se hace la transformación de los datos del CSV.
         """
-        rut_sin_dv, dv = self.get_rut_parts()
+        # Procesar datos del CSV
+        due_date, days_overdue = self.parse_due_date()
         
         return {
-            "phone_number": self.phone_number,
+            "phone_number": self.get_phone_with_prefix(),  # Agregar +56
+            "agent_name": "",  # No viene en el CSV, campo vacío
             "client_name": self.name,
             "client_surname": self.paternal_surname,
-            "full_name": self.get_full_name(),
-            "rut_completo": self.rut,
-            "rut": rut_sin_dv,
-            "dv": dv,
-            "email": self.email,
-            "overdue_date": self.overdue_date1,  # Mapear a campo estándar
-            "overdue_amount": self.overdue_amount1,
-            "down_payment_option": self.down_payment_option1,
+            "full_name": f"{self.name} {self.paternal_surname}",
+            "rut_completo": self.get_full_rut(),  # RUT ya viene completo
+            "rut": self.rut,  # RUT completo
+            "email": self.email,  # Viene directo del CSV
+            "due_date": due_date,  # Fecha procesada
+            "days_overdue": days_overdue,  # Días calculados
+            "monthly_payment": self.overdue_amount1,  # Mapear overdue_amount1 a monthly_payment
+            "overdue_amount1": self.overdue_amount1,  # Mantener campo original
+            "down_payment_option1": self.down_payment_option1,
+            "overdue_date1": self.overdue_date1,  # Mantener fecha original GMT
             "id_carga": self.id_carga,
             "fecha_carga": self.fecha_carga.isoformat(),
-            "tipo_flujo": "batch_calling",  # Identificar el origen
-            "processed_at": datetime.now().isoformat(),
-            "track_id": self.track_id,
-            "track_status": self.track_status
+            "tipo_flujo": "batch_calling",
+            "processed_at": datetime.now().isoformat()
         }
