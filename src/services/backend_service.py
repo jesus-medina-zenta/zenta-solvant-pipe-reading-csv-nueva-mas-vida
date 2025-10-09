@@ -91,6 +91,7 @@ class BackendApiService:
             logger.debug("="*100)
 
             logger.info(f"🌐 Notificando al backend completion de carga: {carga_id}")
+            
             logger.info(f"📡 Endpoint: {endpoint}")
             logger.debug(f"📋 Payload: {payload}")
             
