@@ -1,524 +1,512 @@
-# 🐍 Template de Pipeline ETL Python - Zenta
+#  Pipeline de Procesamiento CSV - Zenta Solvant
 
-**Autor:** Marcos Valdés  
 **Empresa:** Zenta  
-**Versión:** 2.0  
-**Estado:** Production Ready 🚀
+**Versión:** 1.0  
+**Estado:** Production Ready 
 
-Este es un template profesional para crear pipelines de datos ETL (Extract, Transform, Load) en Python, diseñado para ser desplegado en Google Cloud Run Jobs. Construido con las mejores prácticas de desarrollo y arquitectura moderna.
+Pipeline ETL asíncrono para procesamiento de archivos CSV con datos de clientes, diseñado para integrarse con sistemas SFTP y Backend API. Desplegado en Google Cloud Run Jobs con orquestación completa en Firestore.
 
-## 🎯 ¿Por qué usar este template?
+##  Propósito
 
-- ✅ **Arquitectura probada**: Modular, escalable y mantenible
-- ✅ **Tecnologías modernas**: Python 3.12+, Pydantic v2, async/await
-- ✅ **Observabilidad completa**: Logging estructurado, métricas y trazabilidad
-- ✅ **DevOps ready**: Docker, CI/CD, Cloud Run deployment
-- ✅ **Calidad de código**: Tests automatizados, type hints, documentación
-- ✅ **Listo para producción**: 23/23 tests pasando, validación completa
+Este pipeline transforma datos de clientes desde archivos CSV (provenientes de SFTP o carga manual) hacia una colección de Firestore, aplicando validaciones estrictas de RUT y teléfonos, con trazabilidad completa y notificaciones al backend para continuidad del flujo de negocio
 
-## 🏗️ Arquitectura del Template
+##  Arquitectura del Sistema
 
-### Diseño Modular
+### Flujos de Datos
+
+El pipeline soporta **2 flujos de entrada**:
+
+#### 1️ **Flujo SFTP (Automático)**
+```
+Cloud Scheduler → Cloud Run Job → SFTP → Parser TXT → CSV → GCS → Pipeline → Firestore
+```
+- Ejecución programada mediante Cloud Scheduler
+- Descarga archivos TXT de ancho fijo desde SFTP
+- Parser convierte formato fixed-width a CSV
+- CSV almacenado en Google Cloud Storage
+- Pipeline procesa y valida datos
+- Resultados en Firestore con estado `PENDIENTE` → `PROCESANDO` → `PARSEADO`
+
+#### 2️ **Flujo Backend API (Manual)**
+```
+Frontend → BFF → Backend API → GCS → Cloud Run Job (con batch_id) → Pipeline → Firestore
+```
+- Usuario sube CSV desde frontend
+- Backend guarda CSV en GCS
+- Backend registra metadata en Firestore (`batch_collection`)
+- Backend dispara Cloud Run Job con `batch_id` como parámetro
+- Pipeline procesa archivo específico
+- Notifica al backend para continuar flujo
+
+### Estructura del Proyecto
 
 ```
-📦 znt-template-pipe-python/
-├── 🐍 src/                     # Código fuente principal
-│   ├── 📝 main.py             # Punto de entrada con manejo de errores
-│   ├── ⚙️ config.py           # Configuración centralizada con Pydantic v2
-│   ├── 🔄 pipeline.py         # Lógica ETL principal con async/await
-│   ├── 📊 models/             # Modelos de datos con validación
-│   │   └── data_models.py     # DataRecord, ProcessingStats, ErrorRecord
-│   ├── 🔌 services/           # Conectores modulares para fuentes de datos
-│   │   ├── base_service.py    # Servicio base abstracto
-│   │   ├── postgres_service.py # Conector PostgreSQL con pool async
-│   │   ├── bigquery_service.py # Conector Google BigQuery
-│   │   └── file_service.py    # Manejo de archivos (CSV, JSON, Parquet, Excel)
-│   └── 🛠️ utils/              # Utilidades del sistema
-│       ├── logger.py          # Sistema de logging estructurado
-│       └── validators.py      # Validadores personalizados
-├── 🧪 tests/                   # Suite completa de pruebas
-│   ├── test_pipeline.py       # Tests del pipeline principal
-│   └── test_services.py       # Tests de servicios
-├── 🎯 examples/                # Ejemplos listos para usar
-│   ├── demo.py               # Demostración interactiva
-│   ├── csv_to_bigquery_pipeline.py # Pipeline CSV → BigQuery
-│   └── validation_examples.py # Ejemplos de validación
-├── 📜 scripts/                 # Scripts de automatización
-│   ├── setup.sh              # Configuración automática del entorno
-│   ├── test.sh               # Ejecución de tests
-│   └── deploy.sh             # Deployment a Cloud Run
-├── 🐳 Dockerfile              # Containerización multi-stage
-├── ☁️ cloudbuild.yaml         # CI/CD con Google Cloud Build
-├── 🔧 pyproject.toml          # Configuración moderna de Python
-└── 📖 README.md               # Esta documentación
+📦 zenta-solvant-pipe-reading-csv/
+├──  src/
+│   ├── main.py                    # Punto de entrada (acepta batch_id como arg)
+│   ├── config.py                  # Configuración con Pydantic Settings
+│   ├── pipeline.py                # Lógica ETL principal
+│   ├──  models/
+│   │   ├── data_models.py         # DataRecord con validaciones estrictas
+│   │   ├── batch_record.py        # BatchRecord para flujo backend
+│   │   ├── log_record.py          # LogRecord para flujo SFTP
+│   │   └── metadata_user.py       # MetadataUser (datos del cliente)
+│   ├──  services/
+│   │   ├── firestore_service.py   # Gestión de Firestore (logs, batch, registros)
+│   │   ├── gcs_service.py         # Lectura de CSV desde GCS
+│   │   ├── backend_service.py     # Notificaciones al backend
+│   │   └── base_service.py        # Servicio base abstracto
+│   ├──  utils/
+│   │   ├── logger.py              # Logging estructurado
+│   │   ├── validators.py          # Validadores personalizados
+│   │   └── date_id.py             # Utilidades para manejo de IDs
+│   └──  enums/
+│       └── status.py              # Estados del pipeline (PENDIENTE, PROCESANDO, etc.)
+├──  Dockerfile                  # Containerización para Cloud Run
+├──  deploy/google/cloudbuild.yaml # CI/CD con Cloud Build
+├──  scripts/                    # Scripts de deployment y testing
+└──  tests/                      # Suite de tests Falta implementación
 ```
 
 ### Componentes Clave
 
-#### 🔌 **Servicios (src/services/)**
-- **BaseService**: Clase abstracta con patrones comunes de conexión y gestión de errores
-- **PostgresService**: Conector asíncrono con pool de conexiones y reconexión automática
-- **BigQueryService**: Integración completa con Google BigQuery, manejo de datasets y tablas
-- **FileService**: Soporte para múltiples formatos (CSV, JSON, Parquet, Excel)
+####  **Servicios**
+- **FirestoreService**: Maneja 3 colecciones (logs SFTP, batch calling, registros procesados)
+- **GCSService**: Lee archivos CSV desde Google Cloud Storage con manejo async
+- **BackendService**: Notifica completitud/errores con autenticación Google Cloud
+- **BaseService**: Patrón abstracto para servicios conectables
 
-#### 📊 **Modelos (src/models/)**
-- **DataRecord**: Modelo base con validación Pydantic v2, campos datetime timezone-aware
-- **ProcessingStats**: Métricas de rendimiento y estadísticas del pipeline
-- **ErrorRecord**: Gestión estructurada de errores con contexto completo
-- **PipelineConfig**: Configuración específica del pipeline
+####  **Modelos de Datos**
+- **DataRecord**: Validación Pydantic estricta (RUT obligatorio, teléfonos con formato +56)
+- **BatchRecord**: Metadata de archivos batch (call_name, agent_id, file_path)
+- **LogRecord**: Trazabilidad de procesos SFTP (timestamps, duraciones, errores)
+- **MetadataUser**: Datos completos del cliente (15 campos: queue, RUT, email, etc.)
 
-#### 🛠️ **Utilidades (src/utils/)**
-- **Logger**: Sistema de logging estructurado con contexto y niveles configurables
-- **Validators**: Validadores personalizados para casos de uso específicos
+####  **Utilidades**
+- **Logger**: Logging estructurado con contexto de operaciones
+- **DateIdUtils**: Limpieza de IDs para Firestore y backend (previene duplicados por timestamp)
+- **Validators**: Validación de RUT chileno, formato de teléfonos
 
-## 🚀 Inicio Rápido
+##  Funcionamiento del Pipeline
 
-### 1. Clonar y configurar
+### Proceso ETL Completo
 
+#### 1. **Inicialización** (`Pipeline.__init__`)
+- Detecta modo de operación: `batch_id` presente → Backend, ausente → SFTP
+- Inicializa servicios: Firestore, GCS, Backend
+- Configura logging con contexto del modo
+
+#### 2. **Extracción** (`extract_from_gcs`)
+```python
+CSV en GCS → Lectura asíncrona → List[Dict[str, Any]]
+```
+- Lee archivo CSV desde URL de Google Cloud Storage
+- Parsea CSV a lista de diccionarios
+- Valida existencia del archivo
+- **Input**: `gs://bucket/path/file.csv`
+- **Output**: Lista de registros crudos
+
+#### 3. **Transformación** (`transform_data`)
+```python
+Raw Data → Validación Pydantic → DataRecord → List válidos + List errores
+```
+**Proceso por registro:**
+- Parseo de campos desde CSV o TXT (ancho fijo)
+- **Validación crítica de RUT**: No vacío, formato chileno válido
+- **Validación crítica de teléfonos**: 
+  - `phone_number`: obligatorio, formato `+56XXXXXXXXX` (9 dígitos)
+  - `phone_number_2`: opcional, mismo formato
+  - Intercambio automático si `phone_number` vacío pero `phone_number_2` válido
+- Creación de `MetadataUser` con 15 campos (queue, email, amounts, dates, etc.)
+- Generación de `track_id` único (UUID v4)
+- Conversión de fechas GMT a formato ISO
+
+**Lógica especial:**
+- **Batch Calling**: ID final = `ddmmyyyy-uuid_numero`
+- **SFTP**: ID final = `uuid` (extrae parte después del guión)
+
+**Retorno:**
+- `List[DataRecord]`: Registros válidos
+- `List[str]`: Mensajes de error detallados
+
+#### 4. **Carga** (`save_transformed_records`)
+```python
+List[DataRecord] → Firestore Batch Write → Colección: registros_sftp
+```
+- Procesa en chunks de 500 registros (límite Firestore batch)
+- Limpia IDs con `DateIdUtils` para prevenir duplicados
+- Genera ID de documento: `{cleaned_log_id}_{index}`
+- Añade metadata: `processed_at`, `source_type` (batch_calling/sftp)
+- Serialización JSON-safe con Pydantic
+
+#### 5. **Actualización de Estado**
+```python
+Firestore Update → Status: PENDIENTE → PROCESANDO → PARSEADO/ERROR
+```
+- Estado inicial: `PENDIENTE`
+- Durante proceso: `PROCESANDO` (con `fecha_inicio`)
+- Éxito: `PARSEADO` (con estadísticas: `registros_transformados`, `duracion_segundos`)
+- Error: `ERROR` (con lista de errores limitada a 100 mensajes)
+
+#### 6. **Notificación al Backend** (`notify_backend_completion`)
+```python
+HTTP POST → Backend API → Continúa flujo de negocio
+```
+**Payload según tipo:**
+- **Batch Calling**:
+  ```json
+  {
+    "carga_id": "uuid-limpio",
+    "agent_id": "xxx",
+    "call_name": "batch_name",
+    "agent_phone_number_id": "yyy"
+  }
+  ```
+- **SFTP**:
+  ```json
+  {
+    "carga_id": "uuid-limpio",
+    "agent_id": "config.agent",
+    "call_name": "ddmmyyyy_config.callname",
+    "agent_phone_number_id": "config.phone_id"
+  }
+  ```
+
+**Autenticación**: Google Cloud ID Token con audience = backend URL
+
+### Manejo de Errores
+
+#### Estrategia de Errores por Nivel
+
+**Errores de Validación (registro individual)**:
+- Capturados en `transform_data`
+- Registro descartado, error agregado a lista
+- Pipeline continúa con siguientes registros
+- Errores detallados en Firestore y logs
+
+**Errores Críticos (archivo completo)**:
+- Sin datos extraídos: `mark_as_error` con estado `ERROR`
+- Transformación sin resultados válidos: `ERROR` con detalles
+- Fallo en GCS, Firestore: `ERROR` + notificación backend
+- Pipeline termina, no procesa más
+
+**Límites de Errores**:
+- Máximo 100 mensajes de error por archivo
+- Previene overflow en Firestore documents
+
+### Colecciones de Firestore
+
+| Colección | Propósito | Estados |
+|-----------|-----------|---------|
+| `logs_collection` | Trazabilidad SFTP | PENDIENTE → PROCESANDO → PARSEADO/ERROR |
+| `batch_collection` | Metadata batch calling | pendiente → procesando → completado/error |
+| `registros_sftp` | Datos transformados finales | N/A (solo inserción) |
+
+**Nota**: Ambos flujos escriben en `registros_sftp` con field `source_type` para diferenciación.
+
+##  Validaciones Críticas
+
+### Validación de RUT
+- **Obligatorio**: No puede ser vacío
+- **Formato**: Con o sin dígito verificador
+- **Limpieza**: Remueve puntos y guiones automáticamente
+- **Rechazo**: Registro completo descartado si RUT inválido
+
+### Validación de Teléfonos
+- **phone_number**: 
+  - Obligatorio
+  - Formato: `+56` + 9 dígitos
+  - Limpieza: Remueve espacios y guiones
+- **phone_number_2**: 
+  - Opcional
+  - Mismo formato que phone_number
+- **Intercambio automático**: Si `phone_number` vacío pero `phone_number_2` válido, se intercambian
+- **Rechazo**: Registro descartado si no hay al menos un teléfono válido
+
+### Validación de Metadata
+Campos obligatorios en `MetadataUser`:
+- `queue`: Cola de procesamiento (4 caracteres, ej: "PRA3")
+- `name`: Nombre del cliente (no vacío)
+- `paternal_surname`: Apellido paterno
+- `rut`: RUT validado
+
+Campos opcionales pero validados:
+- `email`: Formato de email, descarta valores como `[object Object]`, `NaN`
+- `overdue_amount1`: Debe ser numérico positivo
+- `process_date`, `overdue_date1`: Formato de fecha válido
+
+## 🚀 Ejecución
+
+### Modo SFTP (Automático)
 ```bash
-# Clonar el template
-git clone <url-del-template> mi-pipeline-proyecto
-cd mi-pipeline-proyecto
-
-# Configurar entorno virtual
-python3 -m venv venv
-source venv/bin/activate
-
-# Instalar dependencias
-pip install -r requirements.txt
-pip install -r requirements-dev.txt  # Para desarrollo
+# Sin parámetros - procesa registros pendientes de SFTP
+python -m src.main
 ```
 
-### 2. Configurar variables de entorno
-
+### Modo Backend (Manual con batch_id)
 ```bash
-# Copiar archivo de configuración
-cp .env.example .env
-
-# Editar con tus credenciales
-nano .env
+# Con UUID de batch específico
+python -m src.main c10ed9e3-e666-4d41-a75b-e351c080332b
 ```
 
-**Variables principales:**
+### Variables de Entorno Requeridas
+
 ```bash
+# Firestore
+FIRESTORE_PROJECT_ID=znt-solvant-dev
+FIRESTORE_DATABASE=znt-solvant-local-db
+FIRESTORE_COLLECTION=registros_sftp
+FIRESTORE_LOGS_COLLECTION=logs_extraccion_sftp
+FIRESTORE_BATCH_COLLECTION=registro_archivos
+
+# Google Cloud Storage
+GCS_PROJECT_ID=znt-solvant-dev
+GCS_BUCKET_NAME=znt-solvant-dev-csv-files
+
+# Backend API
+BACKEND_SERVICE_URL=https://backend.example.com
+BACKEND_PAYLOAD_AGENT=agent-id
+BACKEND_PAYLOAD_CALLNAME=SFTP_BATCH
+BACKEND_PAYLOAD_AGENT_PHONE_NUMBER_ID=phone-id
+BACKEND_ENDPOINT_BATCH_CALLING=batch-calling/notify
+
+# Google Cloud Authentication
+GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json
+
 # Configuración general
-APP_NAME=mi-pipeline-proyecto
 LOG_LEVEL=INFO
 ENVIRONMENT=dev
-
-# PostgreSQL
-POSTGRES_HOST=tu-host-postgresql
-POSTGRES_PORT=5432
-POSTGRES_DATABASE=tu-database
-POSTGRES_USER=tu-usuario
-POSTGRES_PASSWORD=tu-password
-
-# Google Cloud / BigQuery
-BIGQUERY_PROJECT_ID=tu-proyecto-gcp
-BIGQUERY_DATASET=tu-dataset
-BIGQUERY_TABLE=tu-tabla
-BIGQUERY_LOCATION=us-central1
-
-# Autenticación Google Cloud
-GOOGLE_APPLICATION_CREDENTIALS=./tu-service-account.json
 ```
 
-### 3. Ejecutar demo
+## 📦 Deployment en Google Cloud Run
+
+### CI/CD Automático con Terraform + GitHub Triggers
+
+El proyecto utiliza **infraestructura como código (Terraform)** con triggers automáticos desde GitHub:
+
+```
+Push/Merge a dev → GitHub → Cloud Build Trigger → cloudbuild.yaml → Deploy a GCP
+```
+
+**Flujo de deployment:**
+1. Developer hace push o merge a rama `dev`
+2. GitHub notifica al trigger configurado en GCP
+3. Cloud Build ejecuta `deploy/google/cloudbuild.yaml` automáticamente
+4. Pipeline completo: build → test → push → deploy
+5. Cloud Run Job actualizado en entorno productivo
+
+**Ventajas del enfoque:**
+- ✅ Deployment automático sin intervención manual
+- ✅ Infraestructura versionada en Terraform
+- ✅ Trazabilidad completa de cambios (git commits → deploys)
+- ✅ Rollback simple mediante revert de commit
+- ✅ Variables de entorno gestionadas por Terraform
+
+### Build y Deploy Manual (Opcional)
 
 ```bash
-# Demo interactivo con datos de ejemplo
-python examples/demo.py
+# Deploy manual con cloudbuild.yaml (solo si es necesario)
+gcloud builds submit --config deploy/google/cloudbuild.yaml
 
-# Pipeline principal PostgreSQL → BigQuery
-python -m src.main
+# Variables de substitución requeridas:
+# _REGION: us-central1
+# _DOCKER_REPOSITORY: docker-repo-name
+# _COMPONENT_NAME: pipe-reading-csv
+# _ENV: dev
+# _RUN_SERVICE_ACCOUNT_EMAIL: service-account@project.iam.gserviceaccount.com
+# ... (resto de variables de entorno)
 ```
 
-## 📊 Ejemplos de Uso
+### Configuración del Cloud Build
 
-### 1. Pipeline Básico (PostgreSQL → BigQuery)
+El `cloudbuild.yaml` incluye 5 pasos:
+1. **Instalación de dependencias** (Python 3.9)
+2. **Tests** (pendiente de implementación)
+3. **Build de imagen Docker** con tag por BUILD_ID
+4. **Push a Artifact Registry**
+5. **Deploy a Cloud Run Jobs** con variables de entorno
 
-```python
-import asyncio
-from src.pipeline import Pipeline
+**Nota:** La configuración de Terraform gestiona:
+- Cloud Build triggers vinculados a GitHub
+- Service accounts y permisos IAM
+- Variables de entorno del Cloud Run Job
+- Artifact Registry repository
+- Networking y seguridad
 
-async def ejecutar_pipeline():
-    pipeline = Pipeline()
-    success = await pipeline.run()
-    
-    if success:
-        print("✅ Pipeline ejecutado exitosamente")
-    else:
-        print("❌ Pipeline falló")
-
-# Ejecutar
-asyncio.run(ejecutar_pipeline())
-```
-
-### 2. Pipeline con Archivos CSV
-
-```python
-from src.services.file_service import FileService
-from src.services.bigquery_service import BigQueryService
-
-async def csv_to_bigquery():
-    # Extracción
-    file_service = FileService("./data")
-    data = await file_service.extract("productos.csv", "csv")
-    
-    # Transformación (usar tus modelos)
-    processed_data = [transform_record(row) for row in data]
-    
-    # Carga
-    bq_service = BigQueryService()
-    success = await bq_service.load(processed_data)
-    
-    return success
-```
-
-### 3. Validación de Datos Personalizada
-
-```python
-from src.models.data_models import DataRecord
-from pydantic import ValidationError
-
-def validar_datos(raw_data):
-    valid_records = []
-    errors = []
-    
-    for row in raw_data:
-        try:
-            # Validación automática con Pydantic
-            record = DataRecord(**row)
-            valid_records.append(record)
-        except ValidationError as e:
-            errors.append({"row": row, "error": str(e)})
-    
-    return valid_records, errors
-```
-
-## 🧪 Testing
-
-### Ejecutar Tests
+### Configuración de Cloud Scheduler (Flujo SFTP)
 
 ```bash
-# Todos los tests
-python -m pytest
-
-# Con cobertura de código
-python -m pytest --cov=src --cov-report=html
-
-# Tests específicos
-python -m pytest tests/test_pipeline.py -v
-
-# Tests con logging detallado
-python -m pytest -s tests/test_services.py
+# Crear job programado para ejecutar cada hora
+gcloud scheduler jobs create http pipe-reading-csv-schedule \
+  --location=us-central1 \
+  --schedule="0 * * * *" \
+  --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/PROJECT_ID/jobs/pipe-reading-csv-dev:run" \
+  --http-method=POST \
+  --oauth-service-account-email=SERVICE_ACCOUNT@project.iam.gserviceaccount.com
 ```
 
-### Suite de Tests Actual
+## 🧪 Testing (Pendiente de Implementación)
 
-- **✅ 23 tests pasando** (100% success rate)
-- **✅ Tests unitarios**: Funcionalidad individual de componentes
-- **✅ Tests de integración**: Pipeline completo end-to-end
-- **✅ Tests asíncronos**: Validación de operaciones async/await
-- **✅ Mocking avanzado**: Simulación de servicios externos
-
-### Estructura de Tests
-
-```
-tests/
-├── test_pipeline.py          # 11 tests del pipeline principal
-│   ├── ✅ test_pipeline_init
-│   ├── ✅ test_extract_success
-│   ├── ✅ test_transform_valid_data
-│   ├── ✅ test_transform_invalid_data
-│   ├── ✅ test_load_success
-│   └── ✅ test_run_complete_pipeline
-└── test_services.py          # 12 tests de servicios
-    ├── ✅ test_postgres_connection
-    ├── ✅ test_bigquery_connection
-    ├── ✅ test_file_service_csv
-    └── ✅ test_data_validation
-```
-
-## 🔧 Personalización del Template
-
-### 1. Modificar Modelos de Datos
+Actualmente el paso de tests en `cloudbuild.yaml` está comentado. Tests recomendados:
 
 ```python
-# src/models/data_models.py
-from pydantic import BaseModel, Field
-from datetime import datetime
-from typing import Optional
+# tests/test_pipeline.py
+- test_extract_from_gcs()
+- test_transform_data_valid_records()
+- test_transform_data_invalid_rut()
+- test_transform_data_invalid_phone()
+- test_save_to_firestore()
+- test_backend_notification()
 
-class MiModeloPersonalizado(BaseModel):
-    """Modelo específico para mi caso de uso."""
-    
-    id: int = Field(..., description="ID único")
-    nombre: str = Field(..., min_length=1, max_length=255)
-    precio: Optional[float] = Field(None, ge=0)
-    fecha_creacion: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    
-    # Validadores personalizados
-    @field_validator('nombre')
-    @classmethod
-    def validar_nombre(cls, v):
-        if not v.strip():
-            raise ValueError('El nombre no puede estar vacío')
-        return v.strip().title()
+# tests/test_services.py
+- test_firestore_connection()
+- test_gcs_read_csv()
+- test_backend_authentication()
 ```
 
-### 2. Añadir Nuevos Servicios
+## 🔍 Monitoreo y Observabilidad
 
-```python
-# src/services/mi_nuevo_servicio.py
-from .base_service import BaseService
-from typing import List, Dict, Any
+### Logs Estructurados
 
-class MiNuevoServicio(BaseService):
-    """Conector para mi fuente de datos específica."""
-    
-    async def connect(self) -> bool:
-        """Implementar conexión específica."""
-        try:
-            # Tu lógica de conexión
-            self.is_connected = True
-            return True
-        except Exception as e:
-            logger.error(f"Error conectando: {e}")
-            return False
-    
-    async def extract(self, query: str) -> List[Dict[str, Any]]:
-        """Extraer datos de tu fuente."""
-        # Tu lógica de extracción
-        pass
-    
-    async def load(self, data: List[Dict[str, Any]]) -> bool:
-        """Cargar datos a tu destino."""
-        # Tu lógica de carga
-        pass
+El pipeline genera logs detallados en cada etapa:
+
+```
+Iniciando pipeline integrado de procesamiento CSV
+Parámetro de UUID de destino recibido: {batch_id}
+Buscando archivo: {batch_id} en Firestore
+Archivo encontrado: {batch_id}
+Actualizando log {id} a estado PROCESANDO
+Extraídos {n} registros del CSV
+Transformados {n} registros
+Guardando {n} registros en colección 'registros_sftp'
+Procesando chunk {n}: {count} registros
+{n} registros guardados exitosamente
+Notificando al backend completion de carga
+Pipeline ejecutado exitosamente
 ```
 
-### 3. Personalizar Lógica del Pipeline
+### Métricas Clave
 
-```python
-# src/pipeline.py - Modificar métodos según tu caso de uso
+- `registros_extraidos`: Total de registros en CSV
+- `registros_transformados`: Registros validados exitosamente
+- `registros_cargados`: Registros guardados en Firestore
+- `duracion_segundos`: Tiempo total de procesamiento
+- `errores`: Lista de errores de validación (max 100)
 
-async def extract(self) -> List[Dict[str, Any]]:
-    """Personalizar extracción según tu fuente."""
-    try:
-        # Ejemplo: múltiples fuentes
-        query = """
-        SELECT id, nombre, precio, categoria, fecha_creacion
-        FROM mi_tabla_especifica
-        WHERE fecha_creacion >= CURRENT_DATE - INTERVAL '1 day'
-        ORDER BY fecha_creacion DESC
-        """
-        
-        data = await self.postgres_service.extract(query)
-        logger.info(f"Extraídos {len(data)} registros de mi_tabla_especifica")
-        return data
-        
-    except Exception as e:
-        logger.error(f"Error en extracción personalizada: {e}")
-        return []
+### Trazabilidad en Firestore
 
-async def transform(self, raw_data: List[Dict[str, Any]]) -> List[MiModeloPersonalizado]:
-    """Transformación específica para tu caso de uso."""
-    transformed_data = []
-    
-    for row in raw_data:
-        try:
-            # Aplicar transformaciones específicas
-            row['precio'] = row.get('precio', 0) * 1.21  # Agregar IVA
-            row['categoria'] = row.get('categoria', '').upper()
-            
-            # Validar con tu modelo
-            record = MiModeloPersonalizado(**row)
-            transformed_data.append(record)
-            
-        except Exception as e:
-            logger.warning(f"Error transformando registro: {e}")
-    
-    return transformed_data
-```
+Cada proceso actualiza su documento con:
+- `status`: PENDIENTE → PROCESANDO → PARSEADO/ERROR
+- `fecha_inicio`, `fecha_fin`: Timestamps UTC
+- `duracion_segundos`: Performance metrics
+- `pipeline_type`: EXTRACTION o TRANSFORMATION
+- `errores[]`: Detalles de fallos por registro
 
-## 🚀 Deployment
+##  Problemas Comunes y Soluciones
 
-### Google Cloud Run
+### Error: "Archivo no encontrado en GCS"
+**Causa**: URL de GCS incorrecta o permisos insuficientes  
+**Solución**: Verificar formato `gs://bucket/path/file.csv` y service account con rol `Storage Object Viewer`
 
+### Error: "RUT no puede estar vacío"
+**Causa**: Registro con RUT inválido en CSV  
+**Solución**: Revisar archivo origen, el registro será descartado automáticamente
+
+### Error: "No se encontró número de teléfono válido"
+**Causa**: Ambos teléfonos vacíos o formato inválido  
+**Solución**: Corregir datos en CSV, debe tener al menos un teléfono con 9 dígitos
+
+### Error: "Error obteniendo token de autenticación"
+**Causa**: GOOGLE_APPLICATION_CREDENTIALS no configurado o inválido  
+**Solución**: 
 ```bash
-# Usar script automático
-./scripts/deploy.sh
-
-# O manual paso a paso
-gcloud builds submit --config cloudbuild.yaml .
-
-# Deployment directo con Docker
-docker build -t mi-pipeline .
-docker tag mi-pipeline gcr.io/mi-proyecto/mi-pipeline
-docker push gcr.io/mi-proyecto/mi-pipeline
-
-gcloud run jobs create mi-pipeline-job \
-    --image gcr.io/mi-proyecto/mi-pipeline \
-    --region us-central1 \
-    --set-env-vars LOG_LEVEL=INFO
+export GOOGLE_APPLICATION_CREDENTIALS="./service-account-key.json"
+gcloud auth application-default login  # Para desarrollo local
 ```
 
-### Variables de Entorno en Cloud Run
+### Pipeline procesa 0 registros
+**Causa**: Sin registros `PENDIENTE` en Firestore  
+**Solución**: Verificar que existen registros con `status: "PENDIENTE"` en la colección correspondiente
 
-```bash
-# Configurar secrets para credenciales sensibles
-gcloud secrets create postgres-password --data-file=- <<< "tu-password"
+##  Mejoras Potenciales Identificadas
 
-# Configurar variables en el job
-gcloud run jobs update mi-pipeline-job \
-    --set-env-vars LOG_LEVEL=INFO,ENVIRONMENT=production \
-    --set-secrets POSTGRES_PASSWORD=postgres-password:latest
-```
+### 1. **Implementación de Tests**
+-  Actualmente sin tests automatizados
+-  Recomendación: Agregar pytest con fixtures para Firestore y GCS mocks
+-  Prioridad: **ALTA**
 
-### Configuración de CI/CD
+### 2. **Retry Logic**
+-  No hay reintentos automáticos en fallos transitorios (GCS timeout, Firestore rate limits)
+-  Recomendación: Implementar `tenacity` con backoff exponencial
+-  Prioridad: **MEDIA**
 
-El archivo `cloudbuild.yaml` incluye:
-- ✅ **Build automatizado**: Construcción de imagen Docker
-- ✅ **Tests en pipeline**: Ejecución automática de tests
-- ✅ **Deploy condicional**: Deployment solo si tests pasan
-- ✅ **Versionado**: Tags automáticos por commit
 
-## 📈 Monitoreo y Observabilidad
+### 4. **Validación de Duplicados**
+-  No verifica si un `id_carga` ya fue procesado
+-  Recomendación: Consultar Firestore antes de procesar para evitar reprocesamiento
+-  Prioridad: **MEDIA**
 
-### Logging Estructurado
+### 5. **Límite de Errores Configurable**
+-  Hardcoded a 100 errores en `mark_as_error`
+-  Recomendación: Mover a configuración (`config.py`)
+-  Prioridad: **BAJA**
 
-```python
-from src.utils.logger import get_logger
+### 6. **Monitoreo de Performance**
+-  Sin métricas de Cloud Monitoring
+-  Recomendación: Integrar `google-cloud-monitoring` para alertas
+-  Prioridad: **MEDIA**
 
-logger = get_logger(__name__)
+### 7. **Manejo de Archivos Grandes**
+-  Lee todo el CSV en memoria
+-  Recomendación: Implementar streaming para archivos > 100MB
+-  Prioridad: **BAJA** (depende del tamaño típico)
 
-# Logs con contexto
-logger.info("Iniciando procesamiento", extra={
-    "batch_size": 1000,
-    "source": "postgresql",
-    "destination": "bigquery"
-})
+### 8. **Idempotencia en Firestore**
+-  Usa `set()` sin merge, puede sobrescribir datos
+-  Recomendación: Usar `set(merge=True)` o verificar existencia previa
+-  Prioridad: **MEDIA**
 
-# Métricas automáticas
-logger.info(f"Procesados {len(data)} registros en {duration:.2f} segundos")
-```
+### 9. **Documentación de Modelos**
+-  Algunos campos sin descripción clara (ej: `queue_id_cyber`)
+-  Recomendación: Documentar significado de negocio de cada campo
+-  Prioridad: **BAJA**
 
-### Métricas Incluidas
+### 10. **Circuit Breaker para Backend**
+-  Reintentos infinitos si backend está caído
+-  Recomendación: Implementar circuit breaker (pybreaker)
+-  Prioridad: **MEDIA**
 
-- **✅ Tiempos de ejecución**: Por etapa (extract, transform, load)
-- **✅ Contadores**: Registros procesados, errores, éxitos
-- **✅ Calidad de datos**: Porcentaje de validación exitosa
-- **✅ Recursos**: Uso de memoria y conexiones
+## 📋 Checklist de Deployment
 
-## 🔒 Mejores Prácticas Incluidas
+Antes de desplegar a producción:
 
-### Seguridad
-- ✅ **Variables de entorno** para credenciales
-- ✅ **Google Secrets Manager** integration
-- ✅ **No hardcoding** de passwords
-- ✅ **Logging seguro** (sin exponer credenciales)
+### Infraestructura (Terraform)
+- [ ] Terraform aplicado con triggers de GitHub configurados
+- [ ] Rama `dev` protegida con revisión de código obligatoria
+- [ ] Service Account con permisos: `Firestore User`, `Storage Object Viewer`, `Cloud Run Invoker`
+- [ ] Variables de entorno configuradas en Terraform para Cloud Run Job
+- [ ] Artifact Registry repository creado y accesible
+- [ ] Networking y políticas de seguridad validadas
 
-### Performance
-- ✅ **Async/await** para operaciones I/O
-- ✅ **Pool de conexiones** para PostgreSQL
-- ✅ **Procesamiento por lotes** configurable
-- ✅ **Gestión de memoria** eficiente
-
-### Mantenibilidad
-- ✅ **Type hints** completos en Python
-- ✅ **Docstrings** en español
-- ✅ **Separación de responsabilidades**
-- ✅ **Configuración centralizada**
-
-### Robustez
-- ✅ **Retry logic** con backoff exponencial
-- ✅ **Manejo de errores** granular
-- ✅ **Validación de datos** automática
-- ✅ **Logging de errores** con contexto
-
-## 🆘 Troubleshooting
-
-### Errores Comunes
-
-**1. Error de importación relativa**
-```bash
-# ❌ Incorrecto
-python src/main.py
-
-# ✅ Correcto
-python -m src.main
-```
-
-**2. Error de datetime serialization**
-```python
-# ❌ Problema: Object of type datetime is not JSON serializable
-# ✅ Solución: Ya implementada con model_dump(mode='json')
-```
-
-**3. Error de conexión BigQuery**
-```bash
-# Verificar credenciales
-export GOOGLE_APPLICATION_CREDENTIALS="./tu-service-account.json"
-
-# Verificar permisos del service account
-gcloud projects get-iam-policy tu-proyecto
-```
-
-**4. Tests fallando**
-```bash
-# Ejecutar con más detalle
-python -m pytest -v -s tests/
-
-# Verificar dependencias
-pip install -r requirements-dev.txt
-```
-
-## 📚 Recursos Adicionales
-
-### Documentación Interna
-- 📝 **examples/demo.py**: Demostración interactiva paso a paso
-- 🎯 **examples/validation_examples.py**: Casos de validación avanzada
-- 🧪 **tests/**: Tests como documentación de uso
-
-### Enlaces Útiles
-- [Pydantic v2 Documentation](https://docs.pydantic.dev/latest/)
-- [Google Cloud BigQuery Python Client](https://cloud.google.com/bigquery/docs/reference/libraries)
-- [asyncpg Documentation](https://magicstack.github.io/asyncpg/current/)
-- [Google Cloud Run Jobs](https://cloud.google.com/run/docs/create-jobs)
-
-## 🤝 Contribuir al Template
-
-### Para mejorar este template:
-
-1. **Fork** el repositorio
-2. **Crea una rama** para tu feature (`git checkout -b feature/mi-mejora`)
-3. **Implementa** tu mejora con tests
-4. **Ejecuta tests** (`python -m pytest`)
-5. **Commit** tus cambios (`git commit -am 'Añadir mi mejora'`)
-6. **Push** a la rama (`git push origin feature/mi-mejora`)
-7. **Abre un Pull Request**
-
-### Estándares de contribución:
-- ✅ **Tests obligatorios** para nueva funcionalidad
-- ✅ **Documentación** actualizada
-- ✅ **Type hints** en todo el código nuevo
-- ✅ **Logging apropiado** para debugging
+### Aplicación
+- [ ] Credenciales de backend actualizadas en variables de Terraform
+- [ ] Cloud Scheduler configurado (si flujo SFTP activo)
+- [ ] Tests ejecutados exitosamente (cuando se implementen)
+- [ ] Logs de prueba revisados sin errores críticos
+- [ ] Firestore collections creadas con índices apropiados
+- [ ] GCS bucket con archivos de prueba validados
+- [ ] Backend endpoint disponible y respondiendo
+- [ ] Documentación de APIs actualizada
 
 ## 📄 Licencia
 
-Este proyecto está bajo la **Licencia MIT**. Ver el archivo `LICENSE` para más detalles.
+Este proyecto es propiedad de **Zenta Group**.
 
 ---
 
-## 👨‍💻 Créditos
-
-**Desarrollado por:** Marcos Valdés  
-**Empresa:** Zenta  
-**Fecha:** Junio 2025  
-
-**Template optimizado para pipelines ETL de producción con Python 3.12+, Pydantic v2 y Google Cloud Platform.**
+**Desarrollado por:** Equipo Zenta  
+**Contacto:** Para consultas técnicas, revisar logs en Cloud Logging o contactar al equipo de desarrollo.
 
 ---
 
-*¿Tienes preguntas o necesitas ayuda? Consulta los ejemplos en `examples/` o revisa los tests en `tests/` para ver casos de uso específicos.*
+*Documentación generada: Noviembre 2025*
