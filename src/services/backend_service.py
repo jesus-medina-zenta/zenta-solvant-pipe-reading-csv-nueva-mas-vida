@@ -22,8 +22,8 @@ class BackendApiService:
         # Preparar autenticación
         self.auth_request = google.auth.transport.requests.Request()
         
-        logger.info(f"🔧 Backend API Service inicializado")
-        logger.info(f"🌐 Backend URL: {self.backend_url}")
+        logger.info(f" Backend API Service inicializado")
+        logger.info(f" Backend URL: {self.backend_url}")
         
     def _get_authenticated_headers(self) -> Dict[str, str]:
         """
@@ -45,11 +45,11 @@ class BackendApiService:
                 "User-Agent": "Zenta-Pipeline/1.0"
             }
             
-            logger.debug("🔑 Token de autenticación generado exitosamente")
+            logger.debug(" Token de autenticación generado exitosamente")
             return headers
             
         except Exception as e:
-            logger.error(f"❌ Error obteniendo token de autenticación: {e}")
+            logger.error(f" Error obteniendo token de autenticación: {e}")
             raise
     
     def notify_pipeline_completion(self, carga_id: str, pipeline_type: str, record) -> bool:
@@ -86,14 +86,11 @@ class BackendApiService:
                     "agent_phone_number_id": get_backend_config().payload_agent_phone_number_id
                 }
             
-            logger.debug("="*100)
-            logger.debug(f"Payload notificación backend: {payload}")
-            logger.debug("="*100)
 
-            logger.info(f"🌐 Notificando al backend completion de carga: {carga_id}")
+            logger.info(f" Notificando al backend completion de carga: {carga_id}")
             
-            logger.info(f"📡 Endpoint: {endpoint}")
-            logger.debug(f"📋 Payload: {payload}")
+            logger.info(f" Endpoint: {endpoint}")
+            logger.debug(f" Payload: {payload}")
             
             # Obtener headers con autenticación
             headers = self._get_authenticated_headers()
@@ -105,29 +102,29 @@ class BackendApiService:
                 timeout=10
             )
             
-            logger.info(f"📡 Respuesta del backend: {response.status_code}")
+            logger.info(f" Respuesta del backend: {response.status_code}")
             
             if response.status_code in [200, 201, 202]:
-                logger.info(f"✅ Backend notificado exitosamente para carga {carga_id}")
+                logger.info(f" Backend notificado exitosamente para carga {carga_id}")
                 response_data = response.json()
-                logger.debug(f"📄 Respuesta: {response_data}")
+                logger.debug(f" Respuesta: {response_data}")
                 return True
             else:
-                logger.error(f"❌ Error del backend ({response.status_code}): {response.text}")
+                logger.error(f" Error del backend ({response.status_code}): {response.text}")
                 return False
                 
         except requests.exceptions.Timeout:
-            logger.error(f"⏱️ Timeout notificando al backend para carga {carga_id} (>{self.timeout}s)")
+            logger.error(f"⏱ Timeout notificando al backend para carga {carga_id} (>{self.timeout}s)")
             return False
             
         except requests.exceptions.RequestException as e:
-            logger.error(f"🌐 Error de conexión con el backend para carga {carga_id}: {e}")
+            logger.error(f" Error de conexión con el backend para carga {carga_id}: {e}")
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"📄 Respuesta del servidor: {e.response.text}")
+                logger.error(f" Respuesta del servidor: {e.response.text}")
             return False
             
         except Exception as e:
-            logger.error(f"❌ Error inesperado notificando al backend para carga {carga_id}: {e}")
+            logger.error(f" Error inesperado notificando al backend para carga {carga_id}: {e}")
             logger.exception("Detalles del error:")
             return False
     
@@ -150,12 +147,12 @@ class BackendApiService:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ Conexión con backend exitosa")
+                logger.info(f" Conexión con backend exitosa")
                 return True
             else:
-                logger.warning(f"⚠️ Backend respondió con código: {response.status_code}")
+                logger.warning(f" Backend respondió con código: {response.status_code}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error probando conexión con backend: {e}")
+            logger.error(f" Error probando conexión con backend: {e}")
             return False

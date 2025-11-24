@@ -50,7 +50,7 @@ class CloudStorageService:
             #  Verificar credenciales
             credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
             if credentials_path and not os.path.exists(credentials_path):
-                logger.error(f"❌ Archivo de credenciales no existe: {credentials_path}")
+                logger.error(f" Archivo de credenciales no existe: {credentials_path}")
                 return False
             
             # Crear cliente de Cloud Storage
@@ -64,14 +64,14 @@ class CloudStorageService:
                 self.bucket = self.client.bucket(self.bucket_name)
             
             self.is_connected = True
-            logger.info("✅ Conexión a Cloud Storage establecida exitosamente")
+            logger.info(" Conexión a Cloud Storage establecida exitosamente")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error conectando a Cloud Storage: {e}")
-            logger.error(f"❌ Project ID: {self.project_id}")
-            logger.error(f"❌ Bucket Name: {self.bucket_name}")
-            logger.error(f"❌ Credentials: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'NO CONFIGURADO')}")
+            logger.error(f" Error conectando a Cloud Storage: {e}")
+            logger.error(f" Project ID: {self.project_id}")
+            logger.error(f" Bucket Name: {self.bucket_name}")
+            logger.error(f" Credentials: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'NO CONFIGURADO')}")
             self.is_connected = False
             return False
 
@@ -98,7 +98,7 @@ class CloudStorageService:
                 raise ValueError(f"URL mal formateada: {gcs_url}")
             
             bucket_name, blob_path = parts
-            logger.info(f"📖 Leyendo CSV desde: {gcs_url}")
+            logger.info(f" Leyendo CSV desde: {gcs_url}")
             logger.info(f"Bucket: {bucket_name}, Path: {blob_path}")
             
             # Obtener el bucket correcto
@@ -107,7 +107,7 @@ class CloudStorageService:
             
             # Verificar que el archivo existe
             if not blob.exists():
-                logger.error(f"❌ Archivo no encontrado en GCS: {gcs_url}")
+                logger.error(f" Archivo no encontrado en GCS: {gcs_url}")
                 return []
             
             # Descargar contenido
@@ -117,11 +117,11 @@ class CloudStorageService:
             csv_reader = csv.DictReader(io.StringIO(content))
             records = list(csv_reader)
             
-            logger.info(f"✅ Leídos {len(records)} registros del CSV")
+            logger.info(f" Leídos {len(records)} registros del CSV")
             return records
             
         except Exception as e:
-            logger.error(f"❌ Error leyendo CSV desde GCS: {e}")
+            logger.error(f" Error leyendo CSV desde GCS: {e}")
             logger.error(f"URL problemática: {gcs_url}")
             return []
 
@@ -132,4 +132,4 @@ class CloudStorageService:
             self.client = None
             self.bucket = None
             self.is_connected = False
-            logger.info("🔌 Conexión a GCS cerrada")
+            logger.info(" Conexión a GCS cerrada")

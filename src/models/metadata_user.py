@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class MetadataUser(BaseModel):
     queue: str = Field(..., description="Cola de atención")
@@ -16,11 +16,18 @@ class MetadataUser(BaseModel):
     email: str = Field(..., description="Email del cliente")
     card: str = Field(..., description="Tarjeta")
     expiration_date: str = Field(..., description="Fecha de expiración")
-    monthly_payment: str = Field(..., description="Pago mensual")
-    down_payment_option1: str = Field(..., description="Opción de pie 1")
-    process_date: str = Field(..., description="Fecha de proceso")
-    overdue_date1: str = Field(..., description="Fecha de vencimiento 1")
-    overdue_amount1: str = Field(..., description="Monto vencido 1")
-    email: str = Field(..., description="Correo electrónico")
-    card: str = Field(..., description="Tarjeta")
-    expiration_date: str = Field(..., description="Fecha de expiración")
+    gender: str = Field(..., description="Género del usuario")
+
+    @field_validator('gender')
+    @classmethod
+    def transform_gender(cls, v: str) -> str:
+        """Transforma el código de género a su representación textual"""
+        if not v:
+            return v
+        
+        v_upper = v.upper().strip()
+        if v_upper == 'F':
+            return 'DOÑA'
+        elif v_upper == 'M':
+            return 'DON'
+        return v  # Mantener el valor original si no es F o M

@@ -45,6 +45,7 @@ class DataRecord(BaseModel):
                 ('email', 822, 882),
                 ('card', 902, 908),
                 ('expiration_date', 1008, 1018),
+                ('gender', 1029, 1030)
             ]
             
             for field_name, start, end in field_mappings:
@@ -145,12 +146,22 @@ class DataRecord(BaseModel):
         try:
             logger.debug(f"Procesando diccionario para carga_id: {carga_id}")
             
+            # 🔍 DEBUG: Agregar logging para debuggear el problema del gender
+            logger.info(f"🔍 DEBUG - Datos recibidos en from_dict:")
+            logger.info(f"🔍 DEBUG - Keys del diccionario: {list(data.keys())}")
+            logger.info(f"🔍 DEBUG - Valor de gender: '{data.get('gender', 'NOT_FOUND')}'")
+            logger.info(f"🔍 DEBUG - Tipo de gender: {type(data.get('gender', 'NOT_FOUND'))}")
+            
             # Lista de campos requeridos para MetadataUser
             required_fields = ['queue', 'queue_id_cyber', 'rut', 'name', 'paternal_surname', 'maternal_surname']
             missing_fields = [field for field in required_fields if not data.get(field, '').strip()]
             
             if missing_fields:
                 logger.warning(f"Campos faltantes o vacíos: {missing_fields}")
+            
+            # 🔍 DEBUG: Logging antes de crear MetadataUser
+            gender_value = data.get('gender', '').strip()
+            logger.info(f"🔍 DEBUG - Valor de gender después de strip: '{gender_value}'")
             
             metadata = MetadataUser(
                 queue=data.get('queue', '').strip(),
@@ -168,7 +179,11 @@ class DataRecord(BaseModel):
                 email=data.get('email', '').strip(),
                 card=data.get('card', '').strip(),
                 expiration_date=data.get('expiration_date', '').strip(),
+                gender=gender_value,
             )
+            
+            # 🔍 DEBUG: Logging después de crear MetadataUser
+            logger.info(f"🔍 DEBUG - Gender en metadata creado: '{metadata.gender}'")
 
             # Extraer y validar teléfonos
             personal_phone = data.get('personal_phone', '').strip()
