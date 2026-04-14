@@ -26,6 +26,7 @@ class AppConfig(BaseSettings):
     }
 
 
+
 class CloudStorageConfig(BaseSettings):
     """Configuración para Google Cloud Storage."""
     
