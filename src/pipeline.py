@@ -2,6 +2,8 @@
 Lógica principal del pipeline ETL.
 """
 import asyncio
+import re
+import unicodedata
 from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime, timezone
 
@@ -184,7 +186,8 @@ class Pipeline:
             )
             
             # 2. Extraer datos del CSV desde GCS
-            raw_data = await self.extract_from_gcs(record.csv_generado)  # Para batch: file_path, Para SFTP: csv_generado
+            input_file_type = getattr(record, 'file_type', None)
+            raw_data = await self.extract_from_gcs(record.csv_generado, input_file_type)  # Para batch: file_path, Para SFTP: csv_generado
             if not raw_data:
                 error_msg = "No se pudieron extraer datos del CSV"
                 await self.mark_as_error(record, error_msg, is_backend_mode)
@@ -284,27 +287,114 @@ class Pipeline:
             await self.mark_as_error(record, [f"Error crítico en procesamiento: {str(e)}"], is_backend_mode, original_batch_id)
             return False
         
-    async def extract_from_gcs(self, gcs_url: str) -> List[Dict[str, Any]]:
+    async def extract_from_gcs(
+        self,
+        gcs_url: str,
+        file_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Extrae datos de un archivo CSV en GCS.
+        Extrae datos de un archivo tabular en GCS.
         
         Args:
-            gcs_url: URL del archivo CSV en GCS
+            gcs_url: URL del archivo en GCS
+            file_type: Tipo de archivo opcional (csv/xlsx/xls)
             
         Returns:
-            List[Dict[str, Any]]: Datos extraídos del CSV
+            List[Dict[str, Any]]: Datos extraídos del archivo
         """
         try:
             if not gcs_url:
                 logger.error(" URL de GCS vacía")
                 return []
             
-            data = await self.gcs_service.read_csv_from_gcs_url(gcs_url)
+            data = await self.gcs_service.read_tabular_from_gcs_url(gcs_url, file_type)
             return data
             
         except Exception as e:
             logger.error(f" Error extrayendo datos de GCS: {e}")
             return []
+
+    @staticmethod
+    def _normalize_scalar(value: Any) -> str:
+        """Convierte valores de CSV/XLSX a strings consistentes."""
+        if value is None:
+            return ""
+
+        if isinstance(value, datetime):
+            return value.strftime("%d-%m-%Y")
+
+        if isinstance(value, float):
+            if value != value:
+                return ""
+            if value.is_integer():
+                return str(int(value))
+
+        text = str(value).strip()
+        if text.lower() in {"nan", "none", "null", "undefined"}:
+            return ""
+
+        return text
+
+    @staticmethod
+    def _normalize_column_name(column_name: str) -> str:
+        """Normaliza encabezados para tolerar variaciones entre CSV y Excel."""
+        normalized = unicodedata.normalize('NFKD', str(column_name))
+        normalized = normalized.encode('ascii', 'ignore').decode('ascii')
+        normalized = normalized.lower().strip()
+        normalized = re.sub(r'[^a-z0-9]+', '_', normalized)
+        return normalized.strip('_')
+
+    def _get_first_matching_value(
+        self,
+        normalized_row: Dict[str, str],
+        aliases: List[str],
+    ) -> str:
+        for alias in aliases:
+            normalized_alias = self._normalize_column_name(alias)
+            value = normalized_row.get(normalized_alias, "")
+            if value:
+                return value
+        return ""
+
+    def _normalize_source_row(self, row: Dict[str, Any]) -> Dict[str, str]:
+        """Homologa encabezados de entrada al esquema esperado por Firestore."""
+        normalized_row = {
+            self._normalize_column_name(key): self._normalize_scalar(value)
+            for key, value in row.items()
+        }
+
+        rut_value = self._get_first_matching_value(
+            normalized_row,
+            ['rut', 'rut_cliente', 'rut_completo'],
+        )
+        rut_number = self._get_first_matching_value(
+            normalized_row,
+            ['rut_number', 'rut_numero', 'numero_rut'],
+        )
+        rut_digit = self._get_first_matching_value(
+            normalized_row,
+            ['rut_digit', 'rut_digito', 'dv', 'digito_verificador'],
+        )
+
+        if not rut_value and rut_number:
+            rut_value = f"{rut_number}{rut_digit}" if rut_digit else rut_number
+
+        return {
+            'rut_deudor': self._get_first_matching_value(normalized_row, ['rut_deudor', 'rut', 'rut_cliente', 'rut_completo']),
+            'nombre_deudor': self._get_first_matching_value(normalized_row, ['nombre_deudor', 'name', 'nombre', 'nombres']),
+            'email_destinatario': self._get_first_matching_value(normalized_row, ['email_destinatario', 'email', 'correo', 'correo_electronico']),
+            'deuda_cotizaciones': self._get_first_matching_value(normalized_row, ['deuda_cotizaciones', 'deuda_total', 'total_debt', 'overdue_amount1']),
+            'monto_cupon': self._get_first_matching_value(normalized_row, ['monto_cupon', 'monto_con_descuento', 'cupon', 'down_payment_option1']),
+            'monto_posible_compensar': self._get_first_matching_value(normalized_row, ['monto_posible_compensar', 'saldo_compensar', 'monto_compensar']),
+            'url_link': self._get_first_matching_value(normalized_row, ['url_link', 'link_pago', 'payment_link', 'url_pago']),
+            'fecha_compromiso': self._get_first_matching_value(normalized_row, ['fecha_compromiso', 'fecha_de_compromiso', 'commitment_date']),
+            'monto_compromiso': self._get_first_matching_value(normalized_row, ['monto_compromiso', 'commitment_amount', 'monto_promesa']),
+            'fono_contacto': self._get_first_matching_value(normalized_row, ['fono_contacto', 'personal_phone', 'cell_phone', 'phone_number', 'telefono', 'telefono_principal', 'telefono_1', 'celular', 'mobile']),
+            'personal_phone': self._get_first_matching_value(normalized_row, ['personal_phone', 'fono_contacto', 'phone_number', 'telefono', 'telefono_principal', 'telefono_1', 'celular', 'mobile']),
+            'cell_phone': self._get_first_matching_value(normalized_row, ['cell_phone', 'fono_contacto', 'phone_number_2', 'celular', 'mobile', 'telefono_2']),
+            'menor_per_deuda': self._get_first_matching_value(normalized_row, ['menor_per_deuda', 'periodo_minimo_deuda', 'periodo_menor_deuda']),
+            'mayor_per_deuda': self._get_first_matching_value(normalized_row, ['mayor_per_deuda', 'periodo_maximo_deuda', 'periodo_mayor_deuda']),
+        }
 
     async def transform_data(self, raw_data: List[Dict[str, Any]], is_batch_calling: bool = False, batch_id: Optional[str] = None) -> Tuple[List[DataRecord], List[str]]:
         """
@@ -341,40 +431,50 @@ class Pipeline:
             
             for idx, row in enumerate(raw_data):
                 try:
+                    normalized_row = self._normalize_source_row(row)
+
                     if is_batch_calling:
-                        # Lógica para batch calling (sin cambios)
                         carga_id = f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}"
-                        
-                        # Mapear campos de batch calling a estructura DataRecord
-                    
+
                         mapped_data = {
                             'queue': 'BATCH',
                             'queue_id_cyber': 'BATCH',
-                            'rut': row.get('rut', '').strip(),  # RUT viene completo del CSV
-                            'name': row.get('name', '').strip(),
-                            'paternal_surname': row.get('paternal_surname', '').strip(),
-                            'maternal_surname': '',  # No viene en el CSV
-                            'days_overdue': '',  # Se calculará desde overdue_date1
-                            'monthly_payment': str(row.get('overdue_amount1', '')).strip(),  
-                            'down_payment_option1': str(row.get('down_payment_option1', '')).strip(),
-                            'process_date': '',  # Se calculará desde overdue_date1
-                            'overdue_date1': row.get('overdue_date1', '').strip(),  
-                            'overdue_amount1': str(row.get('overdue_amount1', '')).strip(),  
-                            'email': row.get('email', '').strip(), 
-                            'card': '',  # No viene en el CSV
-                            'expiration_date': '',  # No viene en el CSV
-                            'personal_phone': row.get('phone_number', '').strip().replace('+56', ''),
-                            'cell_phone': ''  # No hay segundo teléfono en el CSV
+                            'rut': normalized_row.get('rut', '') or normalized_row.get('rut_deudor', ''),
+                            'rut_deudor': normalized_row.get('rut_deudor', '') or normalized_row.get('rut', ''),
+                            'name': normalized_row.get('name', '') or normalized_row.get('nombre_deudor', ''),
+                            'nombre_deudor': normalized_row.get('nombre_deudor', '') or normalized_row.get('name', ''),
+                            'paternal_surname': normalized_row.get('paternal_surname', ''),
+                            'maternal_surname': normalized_row.get('maternal_surname', ''),
+                            'days_overdue': normalized_row.get('days_overdue', ''),
+                            'monthly_payment': normalized_row.get('monthly_payment', '') or normalized_row.get('deuda_cotizaciones', '') or normalized_row.get('overdue_amount1', ''),
+                            'down_payment_option1': normalized_row.get('down_payment_option1', '') or normalized_row.get('monto_cupon', ''),
+                            'process_date': normalized_row.get('process_date', '') or normalized_row.get('fecha_compromiso', ''),
+                            'overdue_date1': normalized_row.get('overdue_date1', ''),
+                            'overdue_amount1': normalized_row.get('overdue_amount1', '') or normalized_row.get('deuda_cotizaciones', ''),
+                            'email': normalized_row.get('email', '') or normalized_row.get('email_destinatario', ''),
+                            'email_destinatario': normalized_row.get('email_destinatario', '') or normalized_row.get('email', ''),
+                            'card': normalized_row.get('card', ''),
+                            'expiration_date': normalized_row.get('expiration_date', ''),
+                            'gender': normalized_row.get('gender', ''),
+                            'deuda_cotizaciones': normalized_row.get('deuda_cotizaciones', '') or normalized_row.get('overdue_amount1', ''),
+                            'monto_cupon': normalized_row.get('monto_cupon', '') or normalized_row.get('down_payment_option1', ''),
+                            'monto_posible_compensar': normalized_row.get('monto_posible_compensar', ''),
+                            'url_link': normalized_row.get('url_link', ''),
+                            'fecha_compromiso': normalized_row.get('fecha_compromiso', '') or normalized_row.get('process_date', ''),
+                            'monto_compromiso': normalized_row.get('monto_compromiso', ''),
+                            'fono_contacto': normalized_row.get('fono_contacto', '') or normalized_row.get('personal_phone', ''),
+                            'menor_per_deuda': normalized_row.get('menor_per_deuda', ''),
+                            'mayor_per_deuda': normalized_row.get('mayor_per_deuda', ''),
+                            'personal_phone': (normalized_row.get('fono_contacto', '') or normalized_row.get('personal_phone', '')).replace('+56', ''),
+                            'cell_phone': normalized_row.get('cell_phone', '').replace('+56', ''),
                         }
                         
                         logger.debug(f"📋 Registro batch {idx + 1} - ID: {carga_id}")
                         
                     else:
-                        # CORREGIDO: Lógica para SFTP - usar el UUID del archivo CSV como base
                         carga_id = f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}"
-                        
-                        # Para SFTP, usar los datos tal como vienen del CSV
-                        mapped_data = row
+
+                        mapped_data = normalized_row
                         
                         logger.debug(f" Registro SFTP {idx + 1} - ID: {carga_id}")
                         logger.debug(f" extraction_id original: {row.get('extraction_id', 'N/A')}")

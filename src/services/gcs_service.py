@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+import pandas as pd
 from google.cloud import storage
 from google.cloud.exceptions import NotFound, Forbidden
 
@@ -122,6 +123,65 @@ class CloudStorageService:
             
         except Exception as e:
             logger.error(f" Error leyendo CSV desde GCS: {e}")
+            logger.error(f"URL problemática: {gcs_url}")
+            return []
+
+    async def read_tabular_from_gcs_url(
+        self,
+        gcs_url: str,
+        file_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Lee un archivo tabular (CSV/XLSX/XLS) desde una URL de GCS.
+
+        Args:
+            gcs_url: URL completa del archivo en GCS (ej: gs://bucket/path/file.csv)
+            file_type: Tipo de archivo opcional para forzar el parser
+
+        Returns:
+            List[Dict[str, Any]]: Lista de registros del archivo
+        """
+        try:
+            if not gcs_url.startswith('gs://'):
+                raise ValueError(f"URL inválida, debe empezar con 'gs://': {gcs_url}")
+
+            path_without_protocol = gcs_url[5:]
+            parts = path_without_protocol.split('/', 1)
+
+            if len(parts) != 2:
+                raise ValueError(f"URL mal formateada: {gcs_url}")
+
+            bucket_name, blob_path = parts
+            resolved_file_type = (file_type or Path(blob_path).suffix.lstrip('.')).lower()
+
+            logger.info(f" Leyendo archivo tabular desde: {gcs_url}")
+            logger.info(f"Bucket: {bucket_name}, Path: {blob_path}, Tipo: {resolved_file_type}")
+
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(blob_path)
+
+            if not blob.exists():
+                logger.error(f" Archivo no encontrado en GCS: {gcs_url}")
+                return []
+
+            if resolved_file_type == 'csv':
+                content = blob.download_as_text(encoding='utf-8')
+                csv_reader = csv.DictReader(io.StringIO(content))
+                records = list(csv_reader)
+            elif resolved_file_type in {'xlsx', 'xls', 'excel'}:
+                content = blob.download_as_bytes()
+                dataframe = pd.read_excel(io.BytesIO(content), dtype=object)
+                dataframe = dataframe.where(pd.notna(dataframe), '')
+                records = dataframe.to_dict(orient='records')
+            else:
+                logger.error(f" Tipo de archivo no soportado para lectura tabular: {resolved_file_type}")
+                return []
+
+            logger.info(f" Leídos {len(records)} registros del archivo tabular")
+            return records
+
+        except Exception as e:
+            logger.error(f" Error leyendo archivo tabular desde GCS: {e}")
             logger.error(f"URL problemática: {gcs_url}")
             return []
 

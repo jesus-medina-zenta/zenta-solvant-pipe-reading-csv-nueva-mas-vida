@@ -1,5 +1,6 @@
 from typing import Optional, List
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from src.enums.status import StatusType
 from src.models.batch_record import BatchRecord
 from src.models.log_record import LogRecord
@@ -67,7 +68,7 @@ class FirestoreService:
             
             # Consultar registros con status PENDIENTE
             query = self.client.collection(self.logs_collection).where(
-                "status", "==", StatusType.PENDIENTE.value
+                filter=FieldFilter("status", "==", StatusType.PENDIENTE.value)
             )
             
             docs = query.get()

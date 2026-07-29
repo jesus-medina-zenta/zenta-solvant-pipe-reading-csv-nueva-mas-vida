@@ -153,7 +153,7 @@ class DataRecord(BaseModel):
             logger.info(f"🔍 DEBUG - Tipo de gender: {type(data.get('gender', 'NOT_FOUND'))}")
             
             # Lista de campos requeridos para MetadataUser
-            required_fields = ['queue', 'queue_id_cyber', 'rut', 'name', 'paternal_surname', 'maternal_surname']
+            required_fields = ['rut', 'name']
             missing_fields = [field for field in required_fields if not data.get(field, '').strip()]
             
             if missing_fields:
@@ -164,29 +164,25 @@ class DataRecord(BaseModel):
             logger.info(f"🔍 DEBUG - Valor de gender después de strip: '{gender_value}'")
             
             metadata = MetadataUser(
-                queue=data.get('queue', '').strip(),
-                queue_id_cyber=data.get('queue_id_cyber', '').strip(),
-                rut=data.get('rut', '').strip(),
-                name=data.get('name', '').strip(),
-                paternal_surname=data.get('paternal_surname', '').strip(),
-                maternal_surname=data.get('maternal_surname', '').strip(),
-                days_overdue=data.get('days_overdue', '').strip(),
-                monthly_payment=data.get('monthly_payment', '').strip(),
-                down_payment_option1=data.get('down_payment_option1', '').strip(),
-                process_date=data.get('process_date', '').strip(),
-                overdue_date1=data.get('overdue_date1', '').strip(),
-                overdue_amount1=data.get('overdue_amount1', '').strip(),
-                email=data.get('email', '').strip(),
-                card=data.get('card', '').strip(),
-                expiration_date=data.get('expiration_date', '').strip(),
-                gender=gender_value,
+                rut_deudor=data.get('rut_deudor', '').strip() or data.get('rut', '').strip(),
+                nombre_deudor=data.get('nombre_deudor', '').strip() or data.get('name', '').strip(),
+                email_destinatario=data.get('email_destinatario', '').strip() or data.get('email', '').strip(),
+                deuda_cotizaciones=data.get('deuda_cotizaciones', '').strip() or data.get('overdue_amount1', '').strip(),
+                monto_cupon=data.get('monto_cupon', '').strip() or data.get('down_payment_option1', '').strip(),
+                monto_posible_compensar=data.get('monto_posible_compensar', '').strip(),
+                url_link=data.get('url_link', '').strip(),
+                fecha_compromiso=data.get('fecha_compromiso', '').strip() or data.get('process_date', '').strip(),
+                monto_compromiso=data.get('monto_compromiso', '').strip(),
+                fono_contacto=data.get('fono_contacto', '').strip(),
+                menor_per_deuda=data.get('menor_per_deuda', '').strip(),
+                mayor_per_deuda=data.get('mayor_per_deuda', '').strip(),
             )
             
             # 🔍 DEBUG: Logging después de crear MetadataUser
             logger.info(f"🔍 DEBUG - Gender en metadata creado: '{metadata.gender}'")
 
             # Extraer y validar teléfonos
-            personal_phone = data.get('personal_phone', '').strip()
+            personal_phone = data.get('personal_phone', '').strip() or data.get('fono_contacto', '').strip()
             cell_phone = data.get('cell_phone', '').strip()
             
             logger.debug(f"Teléfonos originales: personal_phone='{personal_phone}', cell_phone='{cell_phone}'")
@@ -284,9 +280,8 @@ class DataRecord(BaseModel):
         """Validates that critical fields are present, including phone_number."""
         return bool(
             self.phone_number and self.phone_number.strip() and self.phone_number != "+56" and
-            self.metadata_user.queue and self.metadata_user.queue.strip() and
-            self.metadata_user.rut and self.metadata_user.rut.strip() and
-            self.metadata_user.name and self.metadata_user.name.strip()
+            (self.metadata_user.rut_deudor or self.metadata_user.rut) and
+            (self.metadata_user.nombre_deudor or self.metadata_user.name)
         )
     
     model_config = ConfigDict(
