@@ -15,6 +15,7 @@ from src.models.log_record import LogRecord
 from src.services.backend_service import BackendApiService
 from src.services.firestore_service import FirestoreService
 from src.services.gcs_service import CloudStorageService
+from src.utils.date_id import DateIdUtils
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -434,7 +435,7 @@ class Pipeline:
                     normalized_row = self._normalize_source_row(row)
 
                     if is_batch_calling:
-                        carga_id = f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}"
+                        carga_id = DateIdUtils.remove_duplicate_dates(f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}")
 
                         mapped_data = {
                             'queue': 'BATCH',
@@ -472,7 +473,7 @@ class Pipeline:
                         logger.debug(f"📋 Registro batch {idx + 1} - ID: {carga_id}")
                         
                     else:
-                        carga_id = f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}"
+                        carga_id = DateIdUtils.remove_duplicate_dates(f"{fecha_ddmmyyyy}-{batch_id}_{idx + 1}")
 
                         mapped_data = normalized_row
                         
