@@ -18,6 +18,7 @@ class BackendApiService:
     def __init__(self):
         backend_config = get_backend_config()
         self.backend_url = backend_config.service_url
+        self.timeout = 30
 
         # Preparar autenticación
         self.auth_request = google.auth.transport.requests.Request()
@@ -96,10 +97,10 @@ class BackendApiService:
             headers = self._get_authenticated_headers()
             # Realizar solicitud POST
             response = requests.post(
-                endpoint, 
-                headers=headers, 
+                endpoint,
+                headers=headers,
                 json=payload,
-                timeout=10
+                timeout=self.timeout
             )
             
             logger.info(f" Respuesta del backend: {response.status_code}")
@@ -143,7 +144,7 @@ class BackendApiService:
             response = requests.get(
                 endpoint,
                 headers=headers,
-                timeout=10
+                timeout=self.timeout
             )
             
             if response.status_code == 200:
