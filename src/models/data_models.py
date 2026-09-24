@@ -176,6 +176,16 @@ class DataRecord(BaseModel):
                 fono_contacto=data.get('fono_contacto', '').strip(),
                 menor_per_deuda=data.get('menor_per_deuda', '').strip(),
                 mayor_per_deuda=data.get('mayor_per_deuda', '').strip(),
+                name=data.get('name', '').strip(),
+                primer_nombre=data.get('primer_nombre', '').strip(),
+                n_periodos=data.get('n_periodos', '').strip(),
+                ciudad=data.get('ciudad', '').strip(),
+                clasificacion_deudor=data.get('clasificacion_deudor', '').strip(),
+                tipo_deudor=data.get('tipo_deudor', '').strip(),
+                estado_vigencia=data.get('estado_vigencia', '').strip(),
+                fin_vigencia=data.get('fin_vigencia', '').strip(),
+                tramo_deuda=data.get('tramo_deuda', '').strip(),
+                tipo_cartera=data.get('tipo_cartera', '').strip(),
             )
             
             # 🔍 DEBUG: Logging después de crear MetadataUser

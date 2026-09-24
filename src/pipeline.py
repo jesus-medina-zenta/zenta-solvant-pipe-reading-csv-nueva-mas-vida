@@ -395,6 +395,17 @@ class Pipeline:
             'cell_phone': self._get_first_matching_value(normalized_row, ['cell_phone', 'fono_contacto', 'phone_number_2', 'celular', 'mobile', 'telefono_2']),
             'menor_per_deuda': self._get_first_matching_value(normalized_row, ['menor_per_deuda', 'periodo_minimo_deuda', 'periodo_menor_deuda']),
             'mayor_per_deuda': self._get_first_matching_value(normalized_row, ['mayor_per_deuda', 'periodo_maximo_deuda', 'periodo_mayor_deuda']),
+            # Nombre para la llamada ("Juan Saavedra"); nombre_deudor queda como viene en el archivo
+            'name': self._get_first_matching_value(normalized_row, ['nombre_llamada', 'name']),
+            'primer_nombre': self._get_first_matching_value(normalized_row, ['primer_nombre']),
+            'n_periodos': self._get_first_matching_value(normalized_row, ['n_periodos']),
+            'ciudad': self._get_first_matching_value(normalized_row, ['ciudad']),
+            'clasificacion_deudor': self._get_first_matching_value(normalized_row, ['clasificacion_deudor']),
+            'tipo_deudor': self._get_first_matching_value(normalized_row, ['tipo_deudor']),
+            'estado_vigencia': self._get_first_matching_value(normalized_row, ['estado_vigencia']),
+            'fin_vigencia': self._get_first_matching_value(normalized_row, ['fin_vigencia']),
+            'tramo_deuda': self._get_first_matching_value(normalized_row, ['tramo_deuda']),
+            'tipo_cartera': self._get_first_matching_value(normalized_row, ['tipo_cartera']),
         }
 
     async def transform_data(self, raw_data: List[Dict[str, Any]], is_batch_calling: bool = False, batch_id: Optional[str] = None) -> Tuple[List[DataRecord], List[str]]:

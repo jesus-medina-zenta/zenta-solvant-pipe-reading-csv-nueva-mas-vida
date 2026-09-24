@@ -31,6 +31,17 @@ class MetadataUser(BaseModel):
     menor_per_deuda: str = Field(default="", description="Período mínimo de la deuda")
     mayor_per_deuda: str = Field(default="", description="Período máximo de la deuda")
 
+    # Archivo de deudores de Nueva Masvida (normalizado en pipe-reading, utils/client_record.py)
+    primer_nombre: str = Field(default="", description="Primer nombre, para dirigirse al deudor")
+    n_periodos: str = Field(default="", description="Número de períodos adeudados")
+    ciudad: str = Field(default="", description="Ciudad de residencia o asignada")
+    clasificacion_deudor: str = Field(default="", description="Dependiente, Voluntario, Pensionado, etc.")
+    tipo_deudor: str = Field(default="", description="Tipo de deudor (Afiliado)")
+    estado_vigencia: str = Field(default="", description="Estado de vigencia del contrato")
+    fin_vigencia: str = Field(default="", description="Fin de vigencia del contrato")
+    tramo_deuda: str = Field(default="", description="Tramo del menor período de deuda")
+    tipo_cartera: str = Field(default="", description="Tipo de cartera")
+
     @model_validator(mode='after')
     def sync_alias_fields(self) -> "MetadataUser":
         """Mantiene sincronía entre campos legacy y encabezados reales del Excel."""
